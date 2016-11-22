@@ -107,11 +107,11 @@ def create_network(inpt, out, learning_rate=0.0001):
         h1_hist = tf.histogram_summary('h_conv1 activations', h_conv1)
 
         # Compute image summaries of the 48 feature maps
-        cx = 6
-        cy = 8
+        cx = 8
+        cy = 12
         iy = inpt - 3
-        ix = inpt - 3
-        h_conv1_packed = tf.reshape(h_conv1, (iy, ix, 48))
+        ix = iy
+        h_conv1_packed = tf.reshape(h_conv1, (iy, ix, 96))
         iy += 4
         ix += 4
         h_conv1_packed = tf.image.resize_image_with_crop_or_pad(h_conv1_packed, iy, ix)
@@ -124,6 +124,10 @@ def create_network(inpt, out, learning_rate=0.0001):
         # layer 2 - original stride 2
         h_pool1 = max_pool(h_conv1, strides=[1,1], dilation=1)
 
+        #iy = inpt - 3 - 1
+        #ix = iy
+        #h_pool1_packed = tf.reshape(h_pool1, (iy, ix, 48))
+
         # layer 3 - original stride 1
         W_conv2 = weight_variable('W_conv2', [5, 5, 48, 48])
         b_conv2 = bias_variable([48])
@@ -134,11 +138,11 @@ def create_network(inpt, out, learning_rate=0.0001):
         h2_hist = tf.histogram_summary('h_conv2 activations', h_conv2)
 
         # Compute image summaries of the 48 feature maps
-        cx = 6
-        cy = 8
-        iy = 253
-        ix = 253
-        h_conv2_packed = tf.reshape(h_conv2, (iy, ix, 48))
+        cx = 8
+        cy = 12
+        iy = inpt - 3 - 1 - (2 * 4)
+        ix = iy
+        h_conv2_packed = tf.reshape(h_conv2, (iy, ix, 96))
         iy += 4
         ix += 4
         h_conv2_packed = tf.image.resize_image_with_crop_or_pad(h_conv2_packed, iy, ix)
@@ -151,6 +155,10 @@ def create_network(inpt, out, learning_rate=0.0001):
         # layer 4 - original stride 2
         h_pool2 = max_pool(h_conv2, strides=[1,1], dilation=2)
 
+        #iy = inpt - 3 - 1 - (2 * 4) - (2 * 1)
+        #ix = iy
+        #h_pool2_packed = tf.reshape(h_pool2, (1010, 1010, 48))
+
         # layer 5 - original stride 1
         W_conv3 = weight_variable('W_conv3', [5, 5, 48, 48])
         b_conv3 = bias_variable([48])
@@ -161,11 +169,11 @@ def create_network(inpt, out, learning_rate=0.0001):
         h3_hist = tf.histogram_summary('h_conv3 activations', h_conv3)
 
         # Compute image summaries of the 48 feature maps
-        cx = 6
-        cy = 8
-        iy = 235
-        ix = 235
-        h_conv3_packed = tf.reshape(h_conv3, (iy, ix, 48))
+        cx = 8
+        cy = 12
+        iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4)
+        ix = iy
+        h_conv3_packed = tf.reshape(h_conv3, (iy, ix, 96))
         iy += 4
         ix += 4
         h_conv3_packed = tf.image.resize_image_with_crop_or_pad(h_conv3_packed, iy, ix)
@@ -177,6 +185,9 @@ def create_network(inpt, out, learning_rate=0.0001):
         # layer 6 - original stride 2
         h_pool3 = max_pool(h_conv3, strides=[1,1], dilation=4)
 
+        #iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4) - (4 * 1)
+        #ix = iy
+        #h_pool3_packed = tf.reshape(h_pool3, (iy, ix, 48))
 
         # layer 7 - original stride 1
         W_conv4 = weight_variable('W_conv4', [4, 4, 48, 48])
@@ -188,11 +199,11 @@ def create_network(inpt, out, learning_rate=0.0001):
         h4_hist = tf.histogram_summary('h_conv4 activations', h_conv4)
 
         # Compute image summaries of the 48 feature maps
-        cx = 6
-        cy = 8
-        iy = 207
-        ix = 207
-        h_conv4_packed = tf.reshape(h_conv4, (iy, ix, 48))
+        cx = 8
+        cy = 12
+        iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4) - (4 * 1) - (8 * 3)
+        ix = iy
+        h_conv4_packed = tf.reshape(h_conv4, (iy, ix, 96))
         iy += 4
         ix += 4
         h_conv4_packed = tf.image.resize_image_with_crop_or_pad(h_conv4_packed, iy, ix)
@@ -218,8 +229,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         # Compute image summaries of the 48 feature maps
         cx = 10
         cy = 20
-        iy = 151
-        ix = 151
+        iy = out
+        ix = out
         h_fc1_packed = tf.reshape(h_fc1, (iy, ix, 200))
         iy += 4
         ix += 4
@@ -321,6 +332,37 @@ def train(n_iterations=200000):
 
             if step == n_iterations:
                 break
+
+def evaluate(dataset):
+    from tqdm import tqdm
+    with h5py.File(snemi3d.folder()+dataset+'-input.h5','r') as input_file:
+        inpt = input_file['main'][:].astype(np.float32) / 255.0
+        with h5py.File(snemi3d.folder()+dataset+'-affinities.h5','r') as label_file:
+            inputShape = inpt.shape[1]
+            outputShape = inpt.shape[1] - FOV + 1
+            labels = label_file['main']
+
+            net = create_network(inputShape, outputShape)
+            with tf.Session() as sess:
+                # Restore variables from disk.
+                net.saver.restore(sess, snemi3d.folder()+"tmp/FOV115_OUTPT151_96map/model.ckpt")
+                print("Model restored.")
+
+                #TODO pad the image with zeros so that the ouput covers the whole dataset
+                totalPixelError = 0.0
+                for z in xrange(inpt.shape[0]):
+                    print ('z: {} of {}'.format(z,inpt.shape[0]))
+                    reshapedLabel = np.einsum('dzyx->zyxd', labels[0:2,z:z+1,FOV//2:FOV//2+outputShape,FOV//2:FOV//2+outputShape])
+
+                    pixelError = sess.run(net.pixel_error,
+                            feed_dict={net.image: inpt[z].reshape(1, inputShape, inputShape, 1),
+                                       net.target: reshapedLabel})
+
+                    totalPixelError += pixelError
+
+                print('Average pixel error: ' + str(totalPixelError / inpt.shape[0]))
+
+
 
 def predict():
     from tqdm import tqdm
