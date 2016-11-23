@@ -28,7 +28,7 @@ def weight_variable(name, shape):
   return tf.get_variable(name, shape=shape, initializer=tf.contrib.layers.xavier_initializer(uniform=False))
 
 def bias_variable(shape):
-  initial = tf.constant(0.1, shape=shape)
+  initial = tf.constant(0.0, shape=shape)
   return tf.Variable(initial)
 
 def unbiased_bias_variable(shape):
@@ -97,10 +97,13 @@ def create_network(inpt, out, learning_rate=0.0001):
         target_x_summary = tf.image_summary('target x affinities', target[:,:,:,:1])
         target_y_summary = tf.image_summary('target y affinities', target[:,:,:,1:])
 
+        image_bn = tf.contrib.layers.batch_norm(image, updates_collections=None)
+
         # layer 1 - original stride 1
         W_conv1 = weight_variable('W_conv1', [4, 4, 1, 48])
         b_conv1 = unbiased_bias_variable([48])
-        h_conv1 = tf.nn.relu(conv2d(image, W_conv1, dilation=1) + b_conv1)
+        h_conv1 = tf.nn.elu(conv2d(image_bn, W_conv1, dilation=1) + b_conv1)
+
 
         w1_hist = tf.histogram_summary('W_conv1 weights', W_conv1)
         b1_hist = tf.histogram_summary('b_conv1 biases', b_conv1)
@@ -124,6 +127,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         # layer 2 - original stride 2
         h_pool1 = max_pool(h_conv1, strides=[1,1], dilation=1)
 
+        h_pool1_bn = tf.contrib.layers.batch_norm(h_pool1, updates_collections=None)
+
         #iy = inpt - 3 - 1
         #ix = iy
         #h_pool1_packed = tf.reshape(h_pool1, (iy, ix, 48))
@@ -131,7 +136,7 @@ def create_network(inpt, out, learning_rate=0.0001):
         # layer 3 - original stride 1
         W_conv2 = weight_variable('W_conv2', [5, 5, 48, 48])
         b_conv2 = unbiased_bias_variable([48])
-        h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2, dilation=2) + b_conv2)
+        h_conv2 = tf.nn.elu(conv2d(h_pool1_bn, W_conv2, dilation=2) + b_conv2)
 
         w2_hist = tf.histogram_summary('W_conv2 weights', W_conv2)
         b2_hist = tf.histogram_summary('b_conv2 biases', b_conv2)
@@ -155,6 +160,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         # layer 4 - original stride 2
         h_pool2 = max_pool(h_conv2, strides=[1,1], dilation=2)
 
+        h_pool2_bn = tf.contrib.layers.batch_norm(h_pool2, updates_collections=None)
+
         #iy = inpt - 3 - 1 - (2 * 4) - (2 * 1)
         #ix = iy
         #h_pool2_packed = tf.reshape(h_pool2, (1010, 1010, 48))
@@ -162,7 +169,7 @@ def create_network(inpt, out, learning_rate=0.0001):
         # layer 5 - original stride 1
         W_conv3 = weight_variable('W_conv3', [5, 5, 48, 48])
         b_conv3 = unbiased_bias_variable([48])
-        h_conv3 = tf.nn.relu(conv2d(h_pool2, W_conv3, dilation=4) + b_conv3)
+        h_conv3 = tf.nn.elu(conv2d(h_pool2_bn, W_conv3, dilation=4) + b_conv3)
 
         w3_hist = tf.histogram_summary('W_conv3 weights', W_conv3)
         b3_hist = tf.histogram_summary('b_conv3 biases', b_conv3)
@@ -185,6 +192,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         # layer 6 - original stride 2
         h_pool3 = max_pool(h_conv3, strides=[1,1], dilation=4)
 
+        h_pool3_bn = tf.contrib.layers.batch_norm(h_pool3, updates_collections=None)
+
         #iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4) - (4 * 1)
         #ix = iy
         #h_pool3_packed = tf.reshape(h_pool3, (iy, ix, 48))
@@ -192,7 +201,7 @@ def create_network(inpt, out, learning_rate=0.0001):
         # layer 7 - original stride 1
         W_conv4 = weight_variable('W_conv4', [4, 4, 48, 48])
         b_conv4 = unbiased_bias_variable([48])
-        h_conv4 = tf.nn.relu(conv2d(h_pool3, W_conv4, dilation=8) + b_conv4)
+        h_conv4 = tf.nn.elu(conv2d(h_pool3_bn, W_conv4, dilation=8) + b_conv4)
 
         w4_hist = tf.histogram_summary('W_conv4 weights', W_conv4)
         b4_hist = tf.histogram_summary('b_conv4 biases', b_conv4)
@@ -216,11 +225,12 @@ def create_network(inpt, out, learning_rate=0.0001):
         # layer 8 - original stride 2
         h_pool4 = max_pool(h_conv4, strides=[1,1], dilation=8)
 
+        h_pool4_bn = tf.contrib.layers.batch_norm(h_pool4, updates_collections=None)
 
         # layer 9 - original stride 1
         W_fc1 = weight_variable('W_fc1', [4, 4, 48, 200])
         b_fc1 = unbiased_bias_variable([200])
-        h_fc1 = tf.nn.relu(conv2d(h_pool4, W_fc1, dilation=16) + b_fc1)
+        h_fc1 = tf.nn.elu(conv2d(h_pool4_bn, W_fc1, dilation=16) + b_fc1)
 
         w_fc1_hist = tf.histogram_summary('W_fc1 weights', W_fc1)
         b_fc1_hist = tf.histogram_summary('b_fc1 biases', b_fc1)
@@ -288,7 +298,7 @@ def train(n_iterations=200000):
     print ('Run tensorboard to visualize training progress')
     with tf.Session() as sess:
         summary_writer = tf.train.SummaryWriter(
-                       snemi3d.folder()+'tmp/FOV115_OUTPT151_1/', graph=sess.graph)
+                       snemi3d.folder()+'tmp/FOV115_OUTPT151_bn_elu/', graph=sess.graph)
 
         sess.run(tf.initialize_all_variables())
         for step, (inputs, affinities) in enumerate(batch_iterator(FOV,OUTPT,INPT)):
@@ -312,7 +322,7 @@ def train(n_iterations=200000):
                 summary_writer.add_summary(image_summary, step)
 
                 # Save the variables to disk.
-                save_path = net.saver.save(sess, snemi3d.folder()+"tmp/FOV115_OUTPT151_1/model.ckpt")
+                save_path = net.saver.save(sess, snemi3d.folder()+"tmp/FOV115_OUTPT151_bn_elu/model.ckpt")
                 print("Model saved in file: %s" % save_path)
 
             if step == n_iterations:
@@ -330,7 +340,7 @@ def evaluate(dataset):
             net = create_network(inputShape, outputShape)
             with tf.Session() as sess:
                 # Restore variables from disk.
-                net.saver.restore(sess, snemi3d.folder()+"tmp/FOV115_OUTPT151/model.ckpt")
+                net.saver.restore(sess, snemi3d.folder()+"tmp/FOV115_OUTPT151_bn_elu/model.ckpt")
                 print("Model restored.")
 
                 #TODO pad the image with zeros so that the ouput covers the whole dataset
@@ -365,7 +375,7 @@ def predict():
             net = create_network(inputShape, outputShape)
             with tf.Session() as sess:
                 # Restore variables from disk.
-                net.saver.restore(sess, snemi3d.folder()+"tmp/FOV115_OUTPT151_bias0/model.ckpt")
+                net.saver.restore(sess, snemi3d.folder()+"tmp/FOV115_OUTPT151_bn_elu/model.ckpt")
                 print("Model restored.")
 
                 #TODO pad the image with zeros so that the ouput covers the whole dataset
