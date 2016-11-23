@@ -365,7 +365,7 @@ def train(n_iterations=200000):
                                         validation_input.reshape(num_validation_layers, validation_input_shape, validation_input_shape, 1),
                                     validation_net.target: reshaped_label})
 
-                        summary_writer.add_summary(pixel_error_summary, step)
+                        summary_writer.add_summary(validation_pixel_error_summary, step)
 
                     if step == n_iterations:
                         break
