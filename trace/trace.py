@@ -107,8 +107,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         h1_hist = tf.histogram_summary('h_conv1 activations', h_conv1)
 
         # Compute image summaries of the 48 feature maps
-        cx = 8
-        cy = 12
+        cx = 6
+        cy = 8
         iy = inpt - 3
         ix = iy
         h_conv1_packed = tf.reshape(h_conv1[0], (iy, ix, 96))
@@ -138,8 +138,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         h2_hist = tf.histogram_summary('h_conv2 activations', h_conv2)
 
         # Compute image summaries of the 48 feature maps
-        cx = 8
-        cy = 12
+        cx = 6
+        cy = 8
         iy = inpt - 3 - 1 - (2 * 4)
         ix = iy
         h_conv2_packed = tf.reshape(h_conv2[0], (iy, ix, 96))
@@ -169,8 +169,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         h3_hist = tf.histogram_summary('h_conv3 activations', h_conv3)
 
         # Compute image summaries of the 48 feature maps
-        cx = 8
-        cy = 12
+        cx = 6
+        cy = 8
         iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4)
         ix = iy
         h_conv3_packed = tf.reshape(h_conv3[0], (iy, ix, 96))
@@ -199,8 +199,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         h4_hist = tf.histogram_summary('h_conv4 activations', h_conv4)
 
         # Compute image summaries of the 48 feature maps
-        cx = 8
-        cy = 12
+        cx = 6
+        cy = 8
         iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4) - (4 * 1) - (8 * 3)
         ix = iy
         h_conv4_packed = tf.reshape(h_conv4[0], (iy, ix, 96))
