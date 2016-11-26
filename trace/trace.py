@@ -379,7 +379,8 @@ def evaluate(dataset):
             outputShape = inpt.shape[1] - FOV + 1
             labels = label_file['main']
 
-            net = create_network(inputShape, outputShape)
+            with tf.variable_scope('foo'):
+                net = create_network(inputShape, outputShape)
             with tf.Session() as sess:
                 # Restore variables from disk.
                 net.saver.restore(sess, snemi3d.folder()+"tmp/FOV115_OUTPT151_bn_val/model.ckpt")
