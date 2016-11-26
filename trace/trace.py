@@ -21,7 +21,7 @@ FOV = 115
 OUTPT = 151
 INPT = OUTPT + FOV - 1
 
-tmp_dir = 'tmp/FOV115_OUTPT151_96map_watershed0.95/'
+tmp_dir = 'tmp/FOV115_OUTPT151_bn/'
 
 
 def weight_variable(name, shape):
@@ -105,10 +105,12 @@ def create_network(inpt, out, learning_rate=0.0001):
         target_x_summary = tf.summary.image('target x affinities', target[:,:,:,:1])
         target_y_summary = tf.summary.image('target y affinities', target[:,:,:,1:])
 
+        image_bn = tf.contrib.layers.batch_norm(image, updates_collections=None)
+
         # layer 1 - original stride 1
-        W_conv1 = weight_variable('W_conv1', [4, 4, 1, 96])
-        b_conv1 = unbiased_bias_variable('b_conv1', [96])
-        h_conv1 = tf.nn.elu(conv2d(image, W_conv1, dilation=1) + b_conv1)
+        W_conv1 = weight_variable('W_conv1', [4, 4, 1, 48])
+        b_conv1 = unbiased_bias_variable('b_conv1', [48])
+        h_conv1 = tf.nn.elu(conv2d(image_bn, W_conv1, dilation=1) + b_conv1)
 
         w1_hist = tf.summary.histogram('W_conv1 weights', W_conv1)
         b1_hist = tf.summary.histogram('b_conv1 biases', b_conv1)
@@ -119,7 +121,7 @@ def create_network(inpt, out, learning_rate=0.0001):
         cy = 12
         iy = inpt - 3
         ix = iy
-        h_conv1_packed = tf.reshape(h_conv1[0], (iy, ix, 96))
+        h_conv1_packed = tf.reshape(h_conv1[0], (iy, ix, 48))
         iy += 4
         ix += 4
         h_conv1_packed = tf.image.resize_image_with_crop_or_pad(h_conv1_packed, iy, ix)
@@ -128,17 +130,20 @@ def create_network(inpt, out, learning_rate=0.0001):
         h_conv1_packed = tf.reshape(h_conv1_packed, (1, cy * iy, cx * ix, 1))
         h_conv1_image_summary = tf.summary.image('Layer 1 activations', h_conv1_packed)
 
+        h_conv1_bn = tf.contrib.layers.batch_norm(h_conv1, updates_collections=None)
+
 
         # layer 2 - original stride 2
-        h_pool1 = max_pool(h_conv1, strides=[1,1], dilation=1)
+        h_pool1 = max_pool(h_conv1_bn, strides=[1,1], dilation=1)
+
 
         #iy = inpt - 3 - 1
         #ix = iy
         #h_pool1_packed = tf.reshape(h_pool1, (iy, ix, 48))
 
         # layer 3 - original stride 1
-        W_conv2 = weight_variable('W_conv2', [5, 5, 96, 96])
-        b_conv2 = unbiased_bias_variable('b_conv2', [96])
+        W_conv2 = weight_variable('W_conv2', [5, 5, 48, 48])
+        b_conv2 = unbiased_bias_variable('b_conv2', [48])
         h_conv2 = tf.nn.elu(conv2d(h_pool1, W_conv2, dilation=2) + b_conv2)
 
         w2_hist = tf.summary.histogram('W_conv2 weights', W_conv2)
@@ -150,7 +155,7 @@ def create_network(inpt, out, learning_rate=0.0001):
         cy = 12
         iy = inpt - 3 - 1 - (2 * 4)
         ix = iy
-        h_conv2_packed = tf.reshape(h_conv2[0], (iy, ix, 96))
+        h_conv2_packed = tf.reshape(h_conv2[0], (iy, ix, 48))
         iy += 4
         ix += 4
         h_conv2_packed = tf.image.resize_image_with_crop_or_pad(h_conv2_packed, iy, ix)
@@ -159,17 +164,18 @@ def create_network(inpt, out, learning_rate=0.0001):
         h_conv2_packed = tf.reshape(h_conv2_packed, (1, cy * iy, cx * ix, 1))
         h_conv2_image_summary = tf.summary.image('Layer 2 activations', h_conv2_packed)
 
+        h_conv2_bn = tf.contrib.layers.batch_norm(h_conv2, updates_collections=None)
 
         # layer 4 - original stride 2
-        h_pool2 = max_pool(h_conv2, strides=[1,1], dilation=2)
+        h_pool2 = max_pool(h_conv2_bn, strides=[1,1], dilation=2)
 
         #iy = inpt - 3 - 1 - (2 * 4) - (2 * 1)
         #ix = iy
         #h_pool2_packed = tf.reshape(h_pool2, (1010, 1010, 48))
 
         # layer 5 - original stride 1
-        W_conv3 = weight_variable('W_conv3', [5, 5, 96, 96])
-        b_conv3 = unbiased_bias_variable('b_conv3', [96])
+        W_conv3 = weight_variable('W_conv3', [5, 5, 48, 48])
+        b_conv3 = unbiased_bias_variable('b_conv3', [48])
         h_conv3 = tf.nn.elu(conv2d(h_pool2, W_conv3, dilation=4) + b_conv3)
 
         w3_hist = tf.summary.histogram('W_conv3 weights', W_conv3)
@@ -181,7 +187,7 @@ def create_network(inpt, out, learning_rate=0.0001):
         cy = 12
         iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4)
         ix = iy
-        h_conv3_packed = tf.reshape(h_conv3[0], (iy, ix, 96))
+        h_conv3_packed = tf.reshape(h_conv3[0], (iy, ix, 48))
         iy += 4
         ix += 4
         h_conv3_packed = tf.image.resize_image_with_crop_or_pad(h_conv3_packed, iy, ix)
@@ -190,16 +196,19 @@ def create_network(inpt, out, learning_rate=0.0001):
         h_conv3_packed = tf.reshape(h_conv3_packed, (1, cy * iy, cx * ix, 1))
         h_conv3_image_summary = tf.summary.image('Layer 3 activations', h_conv3_packed)
 
+        h_conv3_bn = tf.contrib.layers.batch_norm(h_conv3, updates_collections=None)
+
         # layer 6 - original stride 2
-        h_pool3 = max_pool(h_conv3, strides=[1,1], dilation=4)
+        h_pool3 = max_pool(h_conv3_bn, strides=[1,1], dilation=4)
+
 
         #iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4) - (4 * 1)
         #ix = iy
         #h_pool3_packed = tf.reshape(h_pool3, (iy, ix, 48))
 
         # layer 7 - original stride 1
-        W_conv4 = weight_variable('W_conv4', [4, 4, 96, 96])
-        b_conv4 = unbiased_bias_variable('b_conv4', [96])
+        W_conv4 = weight_variable('W_conv4', [4, 4, 48, 48])
+        b_conv4 = unbiased_bias_variable('b_conv4', [48])
         h_conv4 = tf.nn.elu(conv2d(h_pool3, W_conv4, dilation=8) + b_conv4)
 
         w4_hist = tf.summary.histogram('W_conv4 weights', W_conv4)
@@ -211,7 +220,7 @@ def create_network(inpt, out, learning_rate=0.0001):
         cy = 12
         iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4) - (4 * 1) - (8 * 3)
         ix = iy
-        h_conv4_packed = tf.reshape(h_conv4[0], (iy, ix, 96))
+        h_conv4_packed = tf.reshape(h_conv4[0], (iy, ix, 48))
         iy += 4
         ix += 4
         h_conv4_packed = tf.image.resize_image_with_crop_or_pad(h_conv4_packed, iy, ix)
@@ -220,13 +229,14 @@ def create_network(inpt, out, learning_rate=0.0001):
         h_conv4_packed = tf.reshape(h_conv4_packed, (1, cy * iy, cx * ix, 1))
         h_conv4_image_summary = tf.summary.image('Layer 4 activations', h_conv4_packed)
 
+        h_conv4_bn = tf.contrib.layers.batch_norm(h_conv4, updates_collections=None)
 
         # layer 8 - original stride 2
-        h_pool4 = max_pool(h_conv4, strides=[1,1], dilation=8)
+        h_pool4 = max_pool(h_conv4_bn, strides=[1,1], dilation=8)
 
 
         # layer 9 - original stride 1
-        W_fc1 = weight_variable('W_fc1', [4, 4, 96, 200])
+        W_fc1 = weight_variable('W_fc1', [4, 4, 48, 200])
         b_fc1 = unbiased_bias_variable('b_fc1', [200])
         h_fc1 = tf.nn.elu(conv2d(h_pool4, W_fc1, dilation=16) + b_fc1)
 
@@ -376,7 +386,6 @@ def train(n_iterations=200000):
                         # Measure validation error
 
                         #TODO pad the image with zeros so that the ouput covers the whole dataset
-                        totalPixelError = 0.0
                         reshaped_label = np.einsum('dzyx->zyxd', 
                                 validation_labels[0:2,:,
                                     FOV//2:FOV//2+validation_output_shape,
@@ -403,7 +412,6 @@ def train(n_iterations=200000):
                                     })
 
                         summary_writer.add_summary(score_summary, step)
-
 
                     if step == n_iterations:
                         break
