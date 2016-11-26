@@ -22,7 +22,7 @@ def download():
     snemi3d.maybe_create_dataset()
 
 @cli.command()
-@click.argument('dataset', type=click.Choice(['train', 'test']))
+@click.argument('dataset', type=click.Choice(['training', 'test', 'validation']))
 @click.option('--aff/--no-aff', default=False, help="Display only the affinities.")
 @click.option('--ip', default='172.17.0.2', help="IP address for serving")
 @click.option('--port', default=4125, help="Port for serving")
@@ -39,13 +39,13 @@ def visualize(dataset, aff, ip, port):
     if aff:
         import augmentation
         augmentation.maybe_create_affinities(dataset)
-        add_affinities(snemi3d_dir, dataset+'-affinities', viewer)
+        add_affinities(snemi3d_dir, dataset+'-test-affinities', viewer)
     else:
         add_file(snemi3d_dir, dataset+'-input', viewer)
-        add_file(snemi3d_dir, dataset+'-labels', viewer)
+        add_file(snemi3d_dir, dataset+'-generated-labels', viewer)
 
     print('open your brower at:')
-    print(viewer.__str__().replace('172.17.0.2', '54.166.106.209'))
+    print(viewer.__str__().replace('172.17.0.2', '107.20.165.67'))
     webbrowser.open(viewer.__str__())
     print("press any key to exit")
     raw_input()
@@ -102,7 +102,7 @@ def add_affinities(folder, filename, viewer):
 
 
 @cli.command()
-@click.argument('dataset', type=click.Choice(['train', 'test']), default='test')
+@click.argument('dataset', type=click.Choice(['training', 'test', 'validation']), default='test')
 @click.option('--high', type=float, default=0.9)
 @click.option('--low', type=float, default=0.3)
 @click.option('--dust', type=int, default=250)
@@ -114,7 +114,7 @@ def watershed(dataset, high, low, dust):
     subprocess.call(["julia",
                      curent_dir+"/thirdparty/watershed/watershed.jl",
                      snemi3d.folder()+dataset+"-affinities.h5",
-                     snemi3d.folder()+dataset+"-labels.h5",
+                     snemi3d.folder()+dataset+"-generated-labels.h5",
                      str(high),
                      str(low)])
 
