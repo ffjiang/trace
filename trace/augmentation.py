@@ -3,10 +3,10 @@ from __future__ import division
 from ConfigParser import RawConfigParser
 import os.path
 
-import snemi3d
 import h5py
 import numpy as np
 
+import snemi3d
 from dataprovider.data_provider import VolumeDataProvider
 import dataprovider.transform as transform
 
