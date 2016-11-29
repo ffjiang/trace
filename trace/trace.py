@@ -21,7 +21,7 @@ FOV = 115
 OUTPT = 151
 INPT = OUTPT + FOV - 1
 
-tmp_dir = 'tmp/FOV115_OUTPT151_mirrored/'
+tmp_dir = 'tmp/FOV115_OUTPT151_mirrored_1/'
 
 
 def weight_variable(name, shape):
@@ -354,11 +354,9 @@ def train(n_iterations=200000):
         validation_input_shape = mirrored_validation_input.shape[1]
         validation_output_shape = mirrored_validation_input.shape[1] - FOV + 1
         reshaped_validation_input = mirrored_validation_input.reshape(num_validation_layers, validation_input_shape, validation_input_shape, 1)
-        print(reshaped_validation_input.shape)
         with h5py.File(snemi3d.folder()+'validation-affinities.h5','r') as validation_label_file:
-            validation_labels = validation_label_file['main'][:,:,:,:]
+            validation_labels = validation_label_file['main']
             reshaped_labels = np.einsum('dzyx->zyxd', validation_labels[0:2])
-            print(reshaped_labels.shape)
 
             with tf.variable_scope('foo'):
                 net = create_network(INPT, OUTPT)
@@ -481,7 +479,7 @@ def _evaluateRandError(sigmoid_prediction, num_layers, output_shape, watershed_h
     # Save affinities to temporary file
     tmp_aff_file = 'validation-tmp-affinities.h5'
     tmp_label_file = 'validation-tmp-labels.h5'
-    ground_truth_file = 'validation-generated-labels-truncated.h5'
+    ground_truth_file = 'validation-generated-labels.h5'
 
     with h5py.File(snemi3d.folder()+tmp_dir+tmp_aff_file,'w') as output_file:
         output_file.create_dataset('main', shape=(3, num_layers, output_shape, output_shape))
@@ -550,7 +548,6 @@ def _evaluateRandError(sigmoid_prediction, num_layers, output_shape, watershed_h
 
 
 def predict():
-    from tqdm import tqdm
     with h5py.File(snemi3d.folder()+'test-input.h5','r') as input_file:
         inpt = input_file['main'][:].astype(np.float32) / 255.0
         mirrored_inpt = _mirrorAcrossBorders(inpt)
