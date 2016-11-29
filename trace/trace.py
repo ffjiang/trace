@@ -21,7 +21,7 @@ FOV = 115
 OUTPT = 151
 INPT = OUTPT + FOV - 1
 
-tmp_dir = 'tmp/FOV115_OUTPT151_bn/'
+tmp_dir = 'tmp/FOV115_OUTPT151_mirrored/'
 
 
 def weight_variable(name, shape):
@@ -97,10 +97,17 @@ def create_simple_network(inpt, out, learning_rate=0.001):
 
 def create_network(inpt, out, learning_rate=0.0001):
     class Net:
+        map1 = 96
+        map2 = 96
+        map3 = 96
+        map4 = 96
+        mapfc = 200
+
         # layer 0
         image = tf.placeholder(tf.float32, shape=[None, inpt, inpt, 1])
         target = tf.placeholder(tf.float32, shape=[None, out, out, 2])
         input_summary = tf.summary.image('input image', image)
+        mirrored_input_summary = tf.summary.image('mirrored input image', image)
         output_patch_summary = tf.summary.image('output patch', image[:,FOV//2:FOV//2+out,FOV//2:FOV//2+out,:])
         target_x_summary = tf.summary.image('target x affinities', target[:,:,:,:1])
         target_y_summary = tf.summary.image('target y affinities', target[:,:,:,1:])
@@ -108,8 +115,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         image_bn = tf.contrib.layers.batch_norm(image, updates_collections=None)
 
         # layer 1 - original stride 1
-        W_conv1 = weight_variable('W_conv1', [4, 4, 1, 48])
-        b_conv1 = unbiased_bias_variable('b_conv1', [48])
+        W_conv1 = weight_variable('W_conv1', [4, 4, 1, map1])
+        b_conv1 = unbiased_bias_variable('b_conv1', [map1])
         h_conv1 = tf.nn.elu(conv2d(image_bn, W_conv1, dilation=1) + b_conv1)
 
         w1_hist = tf.summary.histogram('W_conv1 weights', W_conv1)
@@ -121,7 +128,7 @@ def create_network(inpt, out, learning_rate=0.0001):
         cy = 12
         iy = inpt - 3
         ix = iy
-        h_conv1_packed = tf.reshape(h_conv1[0], (iy, ix, 48))
+        h_conv1_packed = tf.reshape(h_conv1[0], (iy, ix, map1))
         iy += 4
         ix += 4
         h_conv1_packed = tf.image.resize_image_with_crop_or_pad(h_conv1_packed, iy, ix)
@@ -142,8 +149,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         #h_pool1_packed = tf.reshape(h_pool1, (iy, ix, 48))
 
         # layer 3 - original stride 1
-        W_conv2 = weight_variable('W_conv2', [5, 5, 48, 48])
-        b_conv2 = unbiased_bias_variable('b_conv2', [48])
+        W_conv2 = weight_variable('W_conv2', [5, 5, map1, map2])
+        b_conv2 = unbiased_bias_variable('b_conv2', [map2])
         h_conv2 = tf.nn.elu(conv2d(h_pool1, W_conv2, dilation=2) + b_conv2)
 
         w2_hist = tf.summary.histogram('W_conv2 weights', W_conv2)
@@ -155,7 +162,7 @@ def create_network(inpt, out, learning_rate=0.0001):
         cy = 12
         iy = inpt - 3 - 1 - (2 * 4)
         ix = iy
-        h_conv2_packed = tf.reshape(h_conv2[0], (iy, ix, 48))
+        h_conv2_packed = tf.reshape(h_conv2[0], (iy, ix, map2))
         iy += 4
         ix += 4
         h_conv2_packed = tf.image.resize_image_with_crop_or_pad(h_conv2_packed, iy, ix)
@@ -174,8 +181,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         #h_pool2_packed = tf.reshape(h_pool2, (1010, 1010, 48))
 
         # layer 5 - original stride 1
-        W_conv3 = weight_variable('W_conv3', [5, 5, 48, 48])
-        b_conv3 = unbiased_bias_variable('b_conv3', [48])
+        W_conv3 = weight_variable('W_conv3', [5, 5, map2, map3])
+        b_conv3 = unbiased_bias_variable('b_conv3', [map3])
         h_conv3 = tf.nn.elu(conv2d(h_pool2, W_conv3, dilation=4) + b_conv3)
 
         w3_hist = tf.summary.histogram('W_conv3 weights', W_conv3)
@@ -187,7 +194,7 @@ def create_network(inpt, out, learning_rate=0.0001):
         cy = 12
         iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4)
         ix = iy
-        h_conv3_packed = tf.reshape(h_conv3[0], (iy, ix, 48))
+        h_conv3_packed = tf.reshape(h_conv3[0], (iy, ix, map3))
         iy += 4
         ix += 4
         h_conv3_packed = tf.image.resize_image_with_crop_or_pad(h_conv3_packed, iy, ix)
@@ -207,8 +214,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         #h_pool3_packed = tf.reshape(h_pool3, (iy, ix, 48))
 
         # layer 7 - original stride 1
-        W_conv4 = weight_variable('W_conv4', [4, 4, 48, 48])
-        b_conv4 = unbiased_bias_variable('b_conv4', [48])
+        W_conv4 = weight_variable('W_conv4', [4, 4, map3, map4])
+        b_conv4 = unbiased_bias_variable('b_conv4', [map4])
         h_conv4 = tf.nn.elu(conv2d(h_pool3, W_conv4, dilation=8) + b_conv4)
 
         w4_hist = tf.summary.histogram('W_conv4 weights', W_conv4)
@@ -220,7 +227,7 @@ def create_network(inpt, out, learning_rate=0.0001):
         cy = 12
         iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4) - (4 * 1) - (8 * 3)
         ix = iy
-        h_conv4_packed = tf.reshape(h_conv4[0], (iy, ix, 48))
+        h_conv4_packed = tf.reshape(h_conv4[0], (iy, ix, map4))
         iy += 4
         ix += 4
         h_conv4_packed = tf.image.resize_image_with_crop_or_pad(h_conv4_packed, iy, ix)
@@ -236,8 +243,8 @@ def create_network(inpt, out, learning_rate=0.0001):
 
 
         # layer 9 - original stride 1
-        W_fc1 = weight_variable('W_fc1', [4, 4, 48, 200])
-        b_fc1 = unbiased_bias_variable('b_fc1', [200])
+        W_fc1 = weight_variable('W_fc1', [4, 4, map4, mapfc])
+        b_fc1 = unbiased_bias_variable('b_fc1', [mapfc])
         h_fc1 = tf.nn.elu(conv2d(h_pool4, W_fc1, dilation=16) + b_fc1)
 
         w_fc1_hist = tf.summary.histogram('W_fc1 weights', W_fc1)
@@ -249,7 +256,7 @@ def create_network(inpt, out, learning_rate=0.0001):
         cy = 20
         iy = out
         ix = out
-        h_fc1_packed = tf.reshape(h_fc1[0], (iy, ix, 200))
+        h_fc1_packed = tf.reshape(h_fc1[0], (iy, ix, mapfc))
         iy += 4
         ix += 4
         h_fc1_packed = tf.image.resize_image_with_crop_or_pad(h_fc1_packed, iy, ix)
@@ -260,7 +267,7 @@ def create_network(inpt, out, learning_rate=0.0001):
 
 
         # layer 10 - original stride 2
-        W_fc2 = weight_variable('W_fc2', [1, 1, 200, 2])
+        W_fc2 = weight_variable('W_fc2', [1, 1, mapfc, 2])
         b_fc2 = unbiased_bias_variable('b_fc2', [2])
         prediction = conv2d(h_fc1, W_fc2, dilation=16) + b_fc2
 
@@ -343,10 +350,15 @@ def train(n_iterations=200000):
     with h5py.File(snemi3d.folder()+'validation-input.h5','r') as validation_input_file:
         validation_input = validation_input_file['main'][:5,:,:].astype(np.float32) / 255.0
         num_validation_layers = validation_input.shape[0]
-        validation_input_shape = validation_input.shape[1]
-        validation_output_shape = validation_input.shape[1] - FOV + 1
+        mirrored_validation_input = _mirrorAcrossBorders(validation_input)
+        validation_input_shape = mirrored_validation_input.shape[1]
+        validation_output_shape = mirrored_validation_input.shape[1] - FOV + 1
+        reshaped_validation_input = mirrored_validation_input.reshape(num_validation_layers, validation_input_shape, validation_input_shape, 1)
+        print(reshaped_validation_input.shape)
         with h5py.File(snemi3d.folder()+'validation-affinities.h5','r') as validation_label_file:
-            validation_labels = validation_label_file['main'][:,:5,:,:]
+            validation_labels = validation_label_file['main'][:,:,:,:]
+            reshaped_labels = np.einsum('dzyx->zyxd', validation_labels[0:2])
+            print(reshaped_labels.shape)
 
             with tf.variable_scope('foo'):
                 net = create_network(INPT, OUTPT)
@@ -386,17 +398,13 @@ def train(n_iterations=200000):
                         # Measure validation error
 
                         #TODO pad the image with zeros so that the ouput covers the whole dataset
-                        reshaped_label = np.einsum('dzyx->zyxd', 
-                                validation_labels[0:2,:,
-                                    FOV//2:FOV//2+validation_output_shape,
-                                    FOV//2:FOV//2+validation_output_shape])
 
-                        validation_sigmoid_prediction, validation_pixel_error_summary = \
-                                sess.run([validation_net.sigmoid_prediction, validation_net.validation_pixel_error_summary],
-                                    feed_dict={validation_net.image: 
-                                        validation_input.reshape(num_validation_layers, validation_input_shape, validation_input_shape, 1),
-                                        validation_net.target: reshaped_label})
+                        validation_sigmoid_prediction, validation_pixel_error_summary, mirrored_input_summary = \
+                                sess.run([validation_net.sigmoid_prediction, validation_net.validation_pixel_error_summary, validation_net.mirrored_input_summary],
+                                    feed_dict={validation_net.image: reshaped_validation_input,
+                                               validation_net.target: reshaped_labels})
 
+                        summary_writer.add_summary(mirrored_input_summary, step)
                         summary_writer.add_summary(validation_pixel_error_summary, step)
 
                         # Might need to create some net that just takes an input
@@ -446,6 +454,28 @@ def evaluatePixelError(dataset):
 
                 print('Average pixel error: ' + str(totalPixelError / inpt.shape[0]))
 
+
+def _mirrorAcrossBorders(data):
+    mirrored_data = np.zeros(shape=(data.shape[0], data.shape[1] + FOV - 1, data.shape[2] + FOV - 1))
+    mirrored_data[:,FOV//2:-(FOV//2),FOV//2:-(FOV//2)] = data
+    for i in range(data.shape[0]):
+        # Mirror the left side
+        mirrored_data[i,FOV//2:-(FOV//2),:FOV//2] = np.fliplr(data[i,:,:FOV//2])
+        # Mirror the right side
+        mirrored_data[i,FOV//2:-(FOV//2),-(FOV//2):] = np.fliplr(data[i,:,-(FOV//2):])
+        # Mirror the top side
+        mirrored_data[i,:FOV//2,FOV//2:-(FOV//2)] = np.flipud(data[i,:FOV//2,:])
+        # Mirror the bottom side
+        mirrored_data[i,-(FOV//2):,FOV//2:-(FOV//2)] = np.flipud(data[i,-(FOV//2):,:])
+        # Mirror the top left corner
+        mirrored_data[i,:FOV//2,:FOV//2] = np.fliplr(np.transpose(np.fliplr(np.transpose(data[i,:FOV//2,:FOV//2]))))
+        # Mirror the top right corner
+        mirrored_data[i,:FOV//2,-(FOV//2):] = np.transpose(np.fliplr(np.transpose(np.fliplr(data[i,:FOV//2,-(FOV//2):]))))
+        # Mirror the bottom left corner
+        mirrored_data[i,-(FOV//2):,:FOV//2] = np.transpose(np.fliplr(np.transpose(np.fliplr(data[i,-(FOV//2):,:FOV//2]))))
+        # Mirror the bottom right corner
+        mirrored_data[i,-(FOV//2):,-(FOV//2):] = np.fliplr(np.transpose(np.fliplr(np.transpose(data[i,-(FOV//2):,-(FOV//2):]))))
+    return mirrored_data
 
 def _evaluateRandError(sigmoid_prediction, num_layers, output_shape, watershed_high=0.9, watershed_low=0.3):
     # Save affinities to temporary file
@@ -521,30 +551,24 @@ def _evaluateRandError(sigmoid_prediction, num_layers, output_shape, watershed_h
 
 def predict():
     from tqdm import tqdm
-    with h5py.File(snemi3d.folder()+'training-input.h5','r') as input_file:
+    with h5py.File(snemi3d.folder()+'test-input.h5','r') as input_file:
         inpt = input_file['main'][:].astype(np.float32) / 255.0
-        with h5py.File(snemi3d.folder()+'training-test-affinities.h5','w') as output_file:
+        mirrored_inpt = _mirrorAcrossBorders(inpt)
+        num_layers = mirrored_inpt.shape[0]
+        input_shape = mirrored_inpt.shape[1]
+        output_shape = mirrored_inpt.shape[1] - FOV + 1
+        with h5py.File(snemi3d.folder()+'test-affinities.h5','w') as output_file:
             output_file.create_dataset('main', shape=(3,)+input_file['main'].shape)
             out = output_file['main']
 
-            inputShape = inpt.shape[1]
-            outputShape = inpt.shape[1] - FOV + 1
             with tf.variable_scope('foo'):
-                net = create_network(inputShape, outputShape)
+                net = create_network(input_shape, output_shape)
             with tf.Session() as sess:
                 # Restore variables from disk.
                 net.saver.restore(sess, snemi3d.folder()+tmp_dir+'model.ckpt')
                 print("Model restored.")
 
-                #TODO pad the image with zeros so that the ouput covers the whole dataset
-                for z in xrange(inpt.shape[0]):
-                    print ('z: {} of {}'.format(z,inpt.shape[0]))
-                    pred = sess.run(net.sigmoid_prediction,
-                            feed_dict={net.image: inpt[z].reshape(1, inputShape, inputShape, 1)})
-                    reshapedPred = np.zeros(shape=(2, outputShape, outputShape))
-                    reshapedPred[0] = pred[0,:,:,0].reshape(outputShape, outputShape)
-                    reshapedPred[1] = pred[0,:,:,1].reshape(outputShape, outputShape)
-                    out[0:2,
-                        z,
-                        FOV//2:FOV//2+outputShape,
-                        FOV//2:FOV//2+outputShape] = reshapedPred
+                pred = sess.run(net.sigmoid_prediction,
+                        feed_dict={net.image: mirrored_inpt.reshape(num_layers, input_shape, input_shape, 1)})
+                reshaped_pred = np.einsum('zyxd->dzyx', pred)
+                out[0:2] = reshaped_pred
