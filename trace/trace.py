@@ -21,7 +21,7 @@ FOV = 115
 OUTPT = 151
 INPT = OUTPT + FOV - 1
 
-tmp_dir = 'tmp/FOV115_OUTPT151_mirrored_long/'
+tmp_dir = 'tmp/testnewmirror/'
 
 
 def weight_variable(name, shape):
@@ -97,10 +97,10 @@ def create_simple_network(inpt, out, learning_rate=0.001):
 
 def create_network(inpt, out, learning_rate=0.0001):
     class Net:
-        map1 = 96
-        map2 = 96
-        map3 = 96
-        map4 = 96
+        map1 = 48
+        map2 = 48
+        map3 = 48
+        map4 = 48
         mapfc = 200
 
         # layer 0
@@ -124,8 +124,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         h1_hist = tf.summary.histogram('h_conv1 activations', h_conv1)
 
         # Compute image summaries of the 48 feature maps
-        cx = 8
-        cy = 12
+        cx = 6
+        cy = 8
         iy = inpt - 3
         ix = iy
         h_conv1_packed = tf.reshape(h_conv1[0], (iy, ix, map1))
@@ -158,8 +158,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         h2_hist = tf.summary.histogram('h_conv2 activations', h_conv2)
 
         # Compute image summaries of the 48 feature maps
-        cx = 8
-        cy = 12
+        cx = 6
+        cy = 8
         iy = inpt - 3 - 1 - (2 * 4)
         ix = iy
         h_conv2_packed = tf.reshape(h_conv2[0], (iy, ix, map2))
@@ -190,8 +190,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         h3_hist = tf.summary.histogram('h_conv3 activations', h_conv3)
 
         # Compute image summaries of the 48 feature maps
-        cx = 8
-        cy = 12
+        cx = 6
+        cy = 8
         iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4)
         ix = iy
         h_conv3_packed = tf.reshape(h_conv3[0], (iy, ix, map3))
@@ -223,8 +223,8 @@ def create_network(inpt, out, learning_rate=0.0001):
         h4_hist = tf.summary.histogram('h_conv4 activations', h_conv4)
 
         # Compute image summaries of the 48 feature maps
-        cx = 8
-        cy = 12
+        cx = 6
+        cy = 8
         iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4) - (4 * 1) - (8 * 3)
         ix = iy
         h_conv4_packed = tf.reshape(h_conv4[0], (iy, ix, map4))
@@ -454,25 +454,7 @@ def evaluatePixelError(dataset):
 
 
 def _mirrorAcrossBorders(data, fov):
-    mirrored_data = np.zeros(shape=(data.shape[0], data.shape[1] + fov - 1, data.shape[2] + fov - 1))
-    mirrored_data[:,fov//2:-(fov//2),fov//2:-(fov//2)] = data
-    for i in range(data.shape[0]):
-        # Mirror the left side
-        mirrored_data[i,fov//2:-(fov//2),:fov//2] = np.fliplr(data[i,:,:fov//2])
-        # Mirror the right side
-        mirrored_data[i,fov//2:-(fov//2),-(fov//2):] = np.fliplr(data[i,:,-(fov//2):])
-        # Mirror the top side
-        mirrored_data[i,:fov//2,fov//2:-(fov//2)] = np.flipud(data[i,:fov//2,:])
-        # Mirror the bottom side
-        mirrored_data[i,-(fov//2):,fov//2:-(fov//2)] = np.flipud(data[i,-(fov//2):,:])
-        # Mirror the top left corner
-        mirrored_data[i,:fov//2,:fov//2] = np.fliplr(np.transpose(np.fliplr(np.transpose(data[i,:fov//2,:fov//2]))))
-        # Mirror the top right corner
-        mirrored_data[i,:fov//2,-(fov//2):] = np.transpose(np.fliplr(np.transpose(np.fliplr(data[i,:fov//2,-(fov//2):]))))
-        # Mirror the bottom left corner
-        mirrored_data[i,-(fov//2):,:fov//2] = np.transpose(np.fliplr(np.transpose(np.fliplr(data[i,-(fov//2):,:fov//2]))))
-        # Mirror the bottom right corner
-        mirrored_data[i,-(fov//2):,-(fov//2):] = np.fliplr(np.transpose(np.fliplr(np.transpose(data[i,-(fov//2):,-(fov//2):]))))
+    mirrored_data = np.pad(data, [(0, 0), (fov//2, fov//2), (fov//2, fov//2)], mode='reflect')
     return mirrored_data
 
 
