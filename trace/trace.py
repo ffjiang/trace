@@ -21,7 +21,7 @@ FOV = 115
 OUTPT = 151
 INPT = OUTPT + FOV - 1
 
-tmp_dir = 'tmp/FOV115_OUTPT151_mirrored/'
+tmp_dir = 'tmp/FOV115_OUTPT151_mirrored_long/'
 
 
 def weight_variable(name, shape):
@@ -350,15 +350,13 @@ def train(n_iterations=200000):
     with h5py.File(snemi3d.folder()+'validation-input.h5','r') as validation_input_file:
         validation_input = validation_input_file['main'][:5,:,:].astype(np.float32) / 255.0
         num_validation_layers = validation_input.shape[0]
-        mirrored_validation_input = _mirrorAcrossBorders(validation_input)
+        mirrored_validation_input = _mirrorAcrossBorders(validation_input, FOV)
         validation_input_shape = mirrored_validation_input.shape[1]
         validation_output_shape = mirrored_validation_input.shape[1] - FOV + 1
         reshaped_validation_input = mirrored_validation_input.reshape(num_validation_layers, validation_input_shape, validation_input_shape, 1)
-        print(reshaped_validation_input.shape)
         with h5py.File(snemi3d.folder()+'validation-affinities.h5','r') as validation_label_file:
-            validation_labels = validation_label_file['main'][:,:,:,:]
+            validation_labels = validation_label_file['main']
             reshaped_labels = np.einsum('dzyx->zyxd', validation_labels[0:2])
-            print(reshaped_labels.shape)
 
             with tf.variable_scope('foo'):
                 net = create_network(INPT, OUTPT)
@@ -455,33 +453,34 @@ def evaluatePixelError(dataset):
                 print('Average pixel error: ' + str(totalPixelError / inpt.shape[0]))
 
 
-def _mirrorAcrossBorders(data):
-    mirrored_data = np.zeros(shape=(data.shape[0], data.shape[1] + FOV - 1, data.shape[2] + FOV - 1))
-    mirrored_data[:,FOV//2:-(FOV//2),FOV//2:-(FOV//2)] = data
+def _mirrorAcrossBorders(data, fov):
+    mirrored_data = np.zeros(shape=(data.shape[0], data.shape[1] + fov - 1, data.shape[2] + fov - 1))
+    mirrored_data[:,fov//2:-(fov//2),fov//2:-(fov//2)] = data
     for i in range(data.shape[0]):
         # Mirror the left side
-        mirrored_data[i,FOV//2:-(FOV//2),:FOV//2] = np.fliplr(data[i,:,:FOV//2])
+        mirrored_data[i,fov//2:-(fov//2),:fov//2] = np.fliplr(data[i,:,:fov//2])
         # Mirror the right side
-        mirrored_data[i,FOV//2:-(FOV//2),-(FOV//2):] = np.fliplr(data[i,:,-(FOV//2):])
+        mirrored_data[i,fov//2:-(fov//2),-(fov//2):] = np.fliplr(data[i,:,-(fov//2):])
         # Mirror the top side
-        mirrored_data[i,:FOV//2,FOV//2:-(FOV//2)] = np.flipud(data[i,:FOV//2,:])
+        mirrored_data[i,:fov//2,fov//2:-(fov//2)] = np.flipud(data[i,:fov//2,:])
         # Mirror the bottom side
-        mirrored_data[i,-(FOV//2):,FOV//2:-(FOV//2)] = np.flipud(data[i,-(FOV//2):,:])
+        mirrored_data[i,-(fov//2):,fov//2:-(fov//2)] = np.flipud(data[i,-(fov//2):,:])
         # Mirror the top left corner
-        mirrored_data[i,:FOV//2,:FOV//2] = np.fliplr(np.transpose(np.fliplr(np.transpose(data[i,:FOV//2,:FOV//2]))))
+        mirrored_data[i,:fov//2,:fov//2] = np.fliplr(np.transpose(np.fliplr(np.transpose(data[i,:fov//2,:fov//2]))))
         # Mirror the top right corner
-        mirrored_data[i,:FOV//2,-(FOV//2):] = np.transpose(np.fliplr(np.transpose(np.fliplr(data[i,:FOV//2,-(FOV//2):]))))
+        mirrored_data[i,:fov//2,-(fov//2):] = np.transpose(np.fliplr(np.transpose(np.fliplr(data[i,:fov//2,-(fov//2):]))))
         # Mirror the bottom left corner
-        mirrored_data[i,-(FOV//2):,:FOV//2] = np.transpose(np.fliplr(np.transpose(np.fliplr(data[i,-(FOV//2):,:FOV//2]))))
+        mirrored_data[i,-(fov//2):,:fov//2] = np.transpose(np.fliplr(np.transpose(np.fliplr(data[i,-(fov//2):,:fov//2]))))
         # Mirror the bottom right corner
-        mirrored_data[i,-(FOV//2):,-(FOV//2):] = np.fliplr(np.transpose(np.fliplr(np.transpose(data[i,-(FOV//2):,-(FOV//2):]))))
+        mirrored_data[i,-(fov//2):,-(fov//2):] = np.fliplr(np.transpose(np.fliplr(np.transpose(data[i,-(fov//2):,-(fov//2):]))))
     return mirrored_data
+
 
 def _evaluateRandError(sigmoid_prediction, num_layers, output_shape, watershed_high=0.9, watershed_low=0.3):
     # Save affinities to temporary file
     tmp_aff_file = 'validation-tmp-affinities.h5'
     tmp_label_file = 'validation-tmp-labels.h5'
-    ground_truth_file = 'validation-generated-labels-truncated.h5'
+    ground_truth_file = 'validation-generated-labels.h5'
 
     with h5py.File(snemi3d.folder()+tmp_dir+tmp_aff_file,'w') as output_file:
         output_file.create_dataset('main', shape=(3, num_layers, output_shape, output_shape))
@@ -550,10 +549,9 @@ def _evaluateRandError(sigmoid_prediction, num_layers, output_shape, watershed_h
 
 
 def predict():
-    from tqdm import tqdm
     with h5py.File(snemi3d.folder()+'test-input.h5','r') as input_file:
         inpt = input_file['main'][:].astype(np.float32) / 255.0
-        mirrored_inpt = _mirrorAcrossBorders(inpt)
+        mirrored_inpt = _mirrorAcrossBorders(inpt, FOV)
         num_layers = mirrored_inpt.shape[0]
         input_shape = mirrored_inpt.shape[1]
         output_shape = mirrored_inpt.shape[1] - FOV + 1
