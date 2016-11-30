@@ -51,7 +51,10 @@ def maybe_create_affinities(dataset):
 def batch_iterator(fov, output_patch, input_patch):
     dataset = 'training'
     net_spec = {'label':(1,input_patch,input_patch),'input':(1,input_patch,input_patch)}
-    params = {'augment': [] , 'drange':[0]}
+    params = {'augment': [{'type': 'flip'},
+                          {'type': 'grey', 'mode': '2D'},
+                          {'type': 'warp'}
+                         ] , 'drange':[0]}
     set_path_to_config(dataset)
     spec = snemi3d.folder()+dataset+'.spec'
     dp = VolumeDataProvider(spec, net_spec, params)

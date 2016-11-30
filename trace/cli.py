@@ -39,13 +39,15 @@ def visualize(dataset, aff, ip, port):
     if aff:
         import augmentation
         augmentation.maybe_create_affinities(dataset)
-        add_affinities(snemi3d_dir, dataset+'-test-affinities', viewer)
+        add_file(snemi3d_dir, dataset+'-input', viewer)
+        add_affinities(snemi3d_dir, dataset+'-generated-affinities', viewer)
+        add_file(snemi3d_dir, dataset+'-generated-labels', viewer)
     else:
         add_file(snemi3d_dir, dataset+'-input', viewer)
         add_file(snemi3d_dir, dataset+'-generated-labels', viewer)
 
     print('open your brower at:')
-    print(viewer.__str__().replace('172.17.0.2', '107.20.165.67'))
+    print(viewer.__str__().replace('172.17.0.2', '54.237.211.88'))
     webbrowser.open(viewer.__str__())
     print("press any key to exit")
     raw_input()
@@ -66,16 +68,17 @@ def add_affinities(folder, filename, viewer):
     """
     try:
         with h5py.File(folder+filename+'.h5','r') as f:
-            x_aff = f['main'][0,:,:,:]
+            x_aff = f['main'][:,:,:,:]
             viewer.add(x_aff, name=filename+'-x', shader="""
             void main() {
               emitRGB(
                     vec3(1.0 - toNormalized(getDataValue(0)),
-                         0,
-                         0)
+                         1.0 - toNormalized(getDataValue(1)),
+                         1.0 - toNormalized(getDataValue(2)))
                       );
             }
             """)
+            '''
             y_aff = f['main'][1,:,:,:]
             viewer.add(y_aff, name=filename+'-y', shader="""
             void main() {
@@ -96,6 +99,7 @@ def add_affinities(folder, filename, viewer):
                       );
             }
             """)
+            '''
     except IOError:
         print(filename+'.h5 not found')
 

@@ -21,7 +21,7 @@ FOV = 115
 OUTPT = 151
 INPT = OUTPT + FOV - 1
 
-tmp_dir = 'tmp/FOV115_OUTPT151_mirrored_long/'
+tmp_dir = 'tmp/FOV115_OUTPT151_augment_2/'
 
 
 def weight_variable(name, shape):
@@ -549,13 +549,13 @@ def _evaluateRandError(sigmoid_prediction, num_layers, output_shape, watershed_h
 
 
 def predict():
-    with h5py.File(snemi3d.folder()+'test-input.h5','r') as input_file:
+    with h5py.File(snemi3d.folder()+'validation-input.h5','r') as input_file:
         inpt = input_file['main'][:].astype(np.float32) / 255.0
         mirrored_inpt = _mirrorAcrossBorders(inpt, FOV)
         num_layers = mirrored_inpt.shape[0]
         input_shape = mirrored_inpt.shape[1]
         output_shape = mirrored_inpt.shape[1] - FOV + 1
-        with h5py.File(snemi3d.folder()+'test-affinities.h5','w') as output_file:
+        with h5py.File(snemi3d.folder()+'validation-generated-affinities.h5','w') as output_file:
             output_file.create_dataset('main', shape=(3,)+input_file['main'].shape)
             out = output_file['main']
 
@@ -566,7 +566,8 @@ def predict():
                 net.saver.restore(sess, snemi3d.folder()+tmp_dir+'model.ckpt')
                 print("Model restored.")
 
-                pred = sess.run(net.sigmoid_prediction,
-                        feed_dict={net.image: mirrored_inpt.reshape(num_layers, input_shape, input_shape, 1)})
-                reshaped_pred = np.einsum('zyxd->dzyx', pred)
-                out[0:2] = reshaped_pred
+                for z in range(num_layers):
+                    pred = sess.run(net.sigmoid_prediction,
+                        feed_dict={net.image: mirrored_inpt[z].reshape(1, input_shape, input_shape, 1)})
+                    reshaped_pred = np.einsum('zyxd->dzyx', pred)
+                    out[0:2,z] = reshaped_pred[:,0]
