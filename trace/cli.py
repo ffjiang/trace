@@ -39,13 +39,13 @@ def visualize(dataset, aff, ip, port):
     if aff:
         import augmentation
         augmentation.maybe_create_affinities(dataset)
-        add_affinities(snemi3d_dir, dataset+'-test-affinities', viewer)
+        add_affinities(snemi3d_dir, dataset+'-affinities', viewer)
     else:
         add_file(snemi3d_dir, dataset+'-input', viewer)
         add_file(snemi3d_dir, dataset+'-generated-labels', viewer)
 
     print('open your brower at:')
-    print(viewer.__str__().replace('172.17.0.2', '107.20.165.67'))
+    print(viewer.__str__().replace('172.17.0.2', '54.236.255.179'))
     webbrowser.open(viewer.__str__())
     print("press any key to exit")
     raw_input()

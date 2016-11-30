@@ -6,6 +6,7 @@ from __future__ import division
 import os
 import subprocess
 import h5py
+import tifffile
 import tensorflow as tf
 import numpy as np
 
@@ -17,11 +18,11 @@ from thirdparty.segascorus import utils
 from thirdparty.segascorus.metrics import *
 
 
-FOV = 115
-OUTPT = 151
+FOV = 95
+OUTPT = 101
 INPT = OUTPT + FOV - 1
 
-tmp_dir = 'tmp/testnewmirror/'
+tmp_dir = 'tmp/deeper_augment_96/'
 
 
 def weight_variable(name, shape):
@@ -44,6 +45,9 @@ def unbiased_bias_variable(name, shape):
 
 def conv2d(x, W, dilation=None):
   return tf.nn.convolution(x, W, strides=[1, 1], padding='VALID', dilation_rate= [dilation, dilation])
+
+def same_conv2d(x, W, dilation=None):
+  return tf.nn.convolution(x, W, strides=[1, 1], padding='SAME', dilation_rate= [dilation, dilation])
 
 def max_pool(x, dilation=None, strides=[2, 2], window_shape=[2, 2]):
   return tf.nn.pool(x, window_shape=window_shape, dilation_rate= [dilation, dilation],
@@ -95,13 +99,23 @@ def create_simple_network(inpt, out, learning_rate=0.001):
 
     return Net()
 
+def createHistograms(name2var):
+    listOfSummaries = []
+    for name, var in name2var.iteritems():
+        listOfSummaries.append(tf.summary.histogram(name, var))
+    return tf.summary.merge(listOfSummaries)
+
 def create_network(inpt, out, learning_rate=0.0001):
     class Net:
-        map1 = 48
-        map2 = 48
-        map3 = 48
-        map4 = 48
-        mapfc = 200
+        map1 = 96
+        map2 = 96
+        map3 = 96
+        map4 = 96
+        map5 = 96
+        map6 = 96
+        map7 = 96
+        map8 = 96
+        mapfc = 400
 
         # layer 0
         image = tf.placeholder(tf.float32, shape=[None, inpt, inpt, 1])
@@ -112,144 +126,87 @@ def create_network(inpt, out, learning_rate=0.0001):
         target_x_summary = tf.summary.image('target x affinities', target[:,:,:,:1])
         target_y_summary = tf.summary.image('target y affinities', target[:,:,:,1:])
 
-        image_bn = tf.contrib.layers.batch_norm(image, updates_collections=None)
 
-        # layer 1 - original stride 1
-        W_conv1 = weight_variable('W_conv1', [4, 4, 1, map1])
+        # Convolutional/max-pool module 2
+        #
+        W_conv1 = weight_variable('W_conv1', [3, 3, 1, map1])
         b_conv1 = unbiased_bias_variable('b_conv1', [map1])
-        h_conv1 = tf.nn.elu(conv2d(image_bn, W_conv1, dilation=1) + b_conv1)
+        h_conv1 = tf.nn.elu(same_conv2d(image, W_conv1, dilation=1) + b_conv1)
 
-        w1_hist = tf.summary.histogram('W_conv1 weights', W_conv1)
-        b1_hist = tf.summary.histogram('b_conv1 biases', b_conv1)
-        h1_hist = tf.summary.histogram('h_conv1 activations', h_conv1)
-
-        # Compute image summaries of the 48 feature maps
-        cx = 6
-        cy = 8
-        iy = inpt - 3
-        ix = iy
-        h_conv1_packed = tf.reshape(h_conv1[0], (iy, ix, map1))
-        iy += 4
-        ix += 4
-        h_conv1_packed = tf.image.resize_image_with_crop_or_pad(h_conv1_packed, iy, ix)
-        h_conv1_packed = tf.reshape(h_conv1_packed, (iy, ix, cy, cx))
-        h_conv1_packed = tf.transpose(h_conv1_packed, (2,0,3,1)) # cy, iy,  cx, ix
-        h_conv1_packed = tf.reshape(h_conv1_packed, (1, cy * iy, cx * ix, 1))
+        h_conv1_packed = computeGridSummary(h_conv1, map1, inpt)
         h_conv1_image_summary = tf.summary.image('Layer 1 activations', h_conv1_packed)
 
-        h_conv1_bn = tf.contrib.layers.batch_norm(h_conv1, updates_collections=None)
-
-
-        # layer 2 - original stride 2
-        h_pool1 = max_pool(h_conv1_bn, strides=[1,1], dilation=1)
-
-
-        #iy = inpt - 3 - 1
-        #ix = iy
-        #h_pool1_packed = tf.reshape(h_pool1, (iy, ix, 48))
-
-        # layer 3 - original stride 1
-        W_conv2 = weight_variable('W_conv2', [5, 5, map1, map2])
+        W_conv2 = weight_variable('W_conv2', [4, 4, map1, map2])
         b_conv2 = unbiased_bias_variable('b_conv2', [map2])
-        h_conv2 = tf.nn.elu(conv2d(h_pool1, W_conv2, dilation=2) + b_conv2)
+        h_conv2 = tf.nn.elu(conv2d(h_conv1, W_conv2, dilation=1) + b_conv2)
 
-        w2_hist = tf.summary.histogram('W_conv2 weights', W_conv2)
-        b2_hist = tf.summary.histogram('b_conv2 biases', b_conv2)
-        h2_hist = tf.summary.histogram('h_conv2 activations', h_conv2)
-
-        # Compute image summaries of the 48 feature maps
-        cx = 6
-        cy = 8
-        iy = inpt - 3 - 1 - (2 * 4)
-        ix = iy
-        h_conv2_packed = tf.reshape(h_conv2[0], (iy, ix, map2))
-        iy += 4
-        ix += 4
-        h_conv2_packed = tf.image.resize_image_with_crop_or_pad(h_conv2_packed, iy, ix)
-        h_conv2_packed = tf.reshape(h_conv2_packed, (iy, ix, cy, cx))
-        h_conv2_packed = tf.transpose(h_conv2_packed, (2,0,3,1)) # cy, iy,  cx, ix
-        h_conv2_packed = tf.reshape(h_conv2_packed, (1, cy * iy, cx * ix, 1))
+        h_conv2_packed = computeGridSummary(h_conv2, map2, inpt - 3)
         h_conv2_image_summary = tf.summary.image('Layer 2 activations', h_conv2_packed)
 
-        h_conv2_bn = tf.contrib.layers.batch_norm(h_conv2, updates_collections=None)
+        h_pool1 = max_pool(h_conv2, strides=[1,1], dilation=1)
 
-        # layer 4 - original stride 2
-        h_pool2 = max_pool(h_conv2_bn, strides=[1,1], dilation=2)
 
-        #iy = inpt - 3 - 1 - (2 * 4) - (2 * 1)
-        #ix = iy
-        #h_pool2_packed = tf.reshape(h_pool2, (1010, 1010, 48))
+        # Convolutional/max-pool module 2
 
-        # layer 5 - original stride 1
-        W_conv3 = weight_variable('W_conv3', [5, 5, map2, map3])
+        W_conv3 = weight_variable('W_conv3', [3, 3, map2, map3])
         b_conv3 = unbiased_bias_variable('b_conv3', [map3])
-        h_conv3 = tf.nn.elu(conv2d(h_pool2, W_conv3, dilation=4) + b_conv3)
+        h_conv3 = tf.nn.elu(same_conv2d(h_pool1, W_conv3, dilation=2) + b_conv3)
 
-        w3_hist = tf.summary.histogram('W_conv3 weights', W_conv3)
-        b3_hist = tf.summary.histogram('b_conv3 biases', b_conv3)
-        h3_hist = tf.summary.histogram('h_conv3 activations', h_conv3)
-
-        # Compute image summaries of the 48 feature maps
-        cx = 6
-        cy = 8
-        iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4)
-        ix = iy
-        h_conv3_packed = tf.reshape(h_conv3[0], (iy, ix, map3))
-        iy += 4
-        ix += 4
-        h_conv3_packed = tf.image.resize_image_with_crop_or_pad(h_conv3_packed, iy, ix)
-        h_conv3_packed = tf.reshape(h_conv3_packed, (iy, ix, cy, cx))
-        h_conv3_packed = tf.transpose(h_conv3_packed, (2,0,3,1)) # cy, iy,  cx, ix
-        h_conv3_packed = tf.reshape(h_conv3_packed, (1, cy * iy, cx * ix, 1))
+        h_conv3_packed = computeGridSummary(h_conv3, map3, inpt - 3 - 1)
         h_conv3_image_summary = tf.summary.image('Layer 3 activations', h_conv3_packed)
 
-        h_conv3_bn = tf.contrib.layers.batch_norm(h_conv3, updates_collections=None)
-
-        # layer 6 - original stride 2
-        h_pool3 = max_pool(h_conv3_bn, strides=[1,1], dilation=4)
-
-
-        #iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4) - (4 * 1)
-        #ix = iy
-        #h_pool3_packed = tf.reshape(h_pool3, (iy, ix, 48))
-
-        # layer 7 - original stride 1
-        W_conv4 = weight_variable('W_conv4', [4, 4, map3, map4])
+        W_conv4 = weight_variable('W_conv4', [5, 5, map3, map4])
         b_conv4 = unbiased_bias_variable('b_conv4', [map4])
-        h_conv4 = tf.nn.elu(conv2d(h_pool3, W_conv4, dilation=8) + b_conv4)
+        h_conv4 = tf.nn.elu(conv2d(h_conv3, W_conv4, dilation=2) + b_conv4)
 
-        w4_hist = tf.summary.histogram('W_conv4 weights', W_conv4)
-        b4_hist = tf.summary.histogram('b_conv4 biases', b_conv4)
-        h4_hist = tf.summary.histogram('h_conv4 activations', h_conv4)
-
-        # Compute image summaries of the 48 feature maps
-        cx = 6
-        cy = 8
-        iy = inpt - 3 - 1 - (2 * 4) - (2 * 1) - (4 * 4) - (4 * 1) - (8 * 3)
-        ix = iy
-        h_conv4_packed = tf.reshape(h_conv4[0], (iy, ix, map4))
-        iy += 4
-        ix += 4
-        h_conv4_packed = tf.image.resize_image_with_crop_or_pad(h_conv4_packed, iy, ix)
-        h_conv4_packed = tf.reshape(h_conv4_packed, (iy, ix, cy, cx))
-        h_conv4_packed = tf.transpose(h_conv4_packed, (2,0,3,1)) # cy, iy,  cx, ix
-        h_conv4_packed = tf.reshape(h_conv4_packed, (1, cy * iy, cx * ix, 1))
+        h_conv4_packed = computeGridSummary(h_conv4, map4, inpt - 3 - 1 - (4 * 2))
         h_conv4_image_summary = tf.summary.image('Layer 4 activations', h_conv4_packed)
 
-        h_conv4_bn = tf.contrib.layers.batch_norm(h_conv4, updates_collections=None)
-
-        # layer 8 - original stride 2
-        h_pool4 = max_pool(h_conv4_bn, strides=[1,1], dilation=8)
+        h_pool2 = max_pool(h_conv4, strides=[1,1], dilation=2)
 
 
-        # layer 9 - original stride 1
-        W_fc1 = weight_variable('W_fc1', [4, 4, map4, mapfc])
+        # Convolutional/max-pool module 3
+
+        W_conv5 = weight_variable('W_conv5', [3, 3, map4, map5])
+        b_conv5 = unbiased_bias_variable('b_conv5', [map5])
+        h_conv5 = tf.nn.elu(same_conv2d(h_pool2, W_conv5, dilation=4) + b_conv5)
+
+        h_conv5_packed = computeGridSummary(h_conv5, map5, inpt - 3 - 1 - (4 * 2) - (2 * 1))
+        h_conv5_image_summary = tf.summary.image('Layer 5 activations', h_conv5_packed)
+
+        W_conv6 = weight_variable('W_conv6', [4, 4, map5, map6])
+        b_conv6 = unbiased_bias_variable('b_conv6', [map6])
+        h_conv6 = tf.nn.elu(conv2d(h_conv5, W_conv6, dilation=4) + b_conv6)
+
+        h_conv6_packed = computeGridSummary(h_conv6, map6, inpt - 3 - 1 - (4 * 2) - (2 * 1) - (3 * 4))
+        h_conv6_image_summary = tf.summary.image('Layer 6 activations', h_conv6_packed)
+
+        h_pool3 = max_pool(h_conv6, strides=[1,1], dilation=4)
+
+
+        # Convolutional/max-pool module 4
+
+        W_conv7 = weight_variable('W_conv7', [3, 3, map6, map7])
+        b_conv7 = unbiased_bias_variable('b_conv7', [map7])
+        h_conv7 = tf.nn.elu(same_conv2d(h_pool3, W_conv7, dilation=8) + b_conv7)
+
+        h_conv7_packed = computeGridSummary(h_conv7, map7, inpt - 3 - 1 - (4 * 2) - (2 * 1) - (3 * 4) - (4 * 1))
+        h_conv7_image_summary = tf.summary.image('Layer 7 activations', h_conv7_packed)
+
+        W_conv8 = weight_variable('W_conv8', [4, 4, map7, map8])
+        b_conv8 = unbiased_bias_variable('b_conv8', [map8])
+        h_conv8 = tf.nn.elu(conv2d(h_conv7, W_conv8, dilation=8) + b_conv8)
+
+        h_conv8_packed = computeGridSummary(h_conv8, map8, inpt - 3 - 1 - (4 * 2) - (2 * 1) - (3 * 4) - (4 * 1) - (3 * 8))
+        h_conv8_image_summary = tf.summary.image('Layer 8 activations', h_conv8_packed)
+
+        h_pool4 = max_pool(h_conv8, strides=[1,1], dilation=8)
+
+
+        # Fully-connected layer 1
+        W_fc1 = weight_variable('W_fc1', [3, 3, map8, mapfc])
         b_fc1 = unbiased_bias_variable('b_fc1', [mapfc])
         h_fc1 = tf.nn.elu(conv2d(h_pool4, W_fc1, dilation=16) + b_fc1)
-
-        w_fc1_hist = tf.summary.histogram('W_fc1 weights', W_fc1)
-        b_fc1_hist = tf.summary.histogram('b_fc1 biases', b_fc1)
-        h_fc1_hist = tf.summary.histogram('h_fc1 activations', h_fc1)
 
         # Compute image summaries of the 48 feature maps
         cx = 10
@@ -266,18 +223,13 @@ def create_network(inpt, out, learning_rate=0.0001):
         h_fc1_image_summary = tf.summary.image('Layer fc1 activations', h_fc1_packed)
 
 
-        # layer 10 - original stride 2
+        # Fully connected layer 2
         W_fc2 = weight_variable('W_fc2', [1, 1, mapfc, 2])
         b_fc2 = unbiased_bias_variable('b_fc2', [2])
         prediction = conv2d(h_fc1, W_fc2, dilation=16) + b_fc2
 
-        w_fc2_hist = tf.summary.histogram('W_fc2 weights', W_fc2)
-        b_fc2_hist = tf.summary.histogram('b_fc2 biases', b_fc2)
-        prediction_hist = tf.summary.histogram('prediction activations', prediction)
-
         sigmoid_prediction = tf.nn.sigmoid(prediction)
 
-        sigmoid_prediction_hist = tf.summary.histogram('sigmoid prediction activations', sigmoid_prediction)
         x_affinity_summary = tf.summary.image('x-affinity predictions', sigmoid_prediction[:,:,:,:1])
         y_affinity_summary = tf.summary.image('y-affinity predictions', sigmoid_prediction[:,:,:,1:])
 
@@ -307,6 +259,7 @@ def create_network(inpt, out, learning_rate=0.0001):
         vi_f_score_merge_summary = tf.summary.scalar('vi f merge score', vi_f_score_merge)
         vi_f_score_split_summary = tf.summary.scalar('vi f split score', vi_f_score_split)
 
+
         score_summary_op = tf.summary.merge([rand_f_score_summary,
                                              rand_f_score_merge_summary,
                                              rand_f_score_split_summary,
@@ -315,17 +268,46 @@ def create_network(inpt, out, learning_rate=0.0001):
                                              vi_f_score_split_summary
                                             ])
 
-        summary_op = tf.summary.merge([w1_hist, b1_hist, h1_hist,
-                                       w2_hist, b2_hist, h2_hist,
-                                       w3_hist, b3_hist, h3_hist,
-                                       w4_hist, b4_hist, h4_hist,
-                                       w_fc1_hist, b_fc1_hist, h_fc1_hist,
-                                       w_fc2_hist, b_fc2_hist, prediction_hist,
-                                       sigmoid_prediction_hist,
+        histograms = createHistograms({
+            'W_conv1 weights'       :   W_conv1,
+            'b_conv1 biases'        :   b_conv1,
+            'h_conv1 activations'   :   h_conv1,
+            'W_conv2 weights'       :   W_conv2,
+            'b_conv2 biases'        :   b_conv2,
+            'h_conv2 activations'   :   h_conv2,
+            'W_conv3 weights'       :   W_conv3,
+            'b_conv3 biases'        :   b_conv3,
+            'h_conv3 activations'   :   h_conv3,
+            'W_conv4 weights'       :   W_conv4,
+            'b_conv4 biases'        :   b_conv4,
+            'h_conv4 activations'   :   h_conv4,
+            'W_conv5 weights'       :   W_conv5,
+            'b_conv5 biases'        :   b_conv5,
+            'h_conv5 activations'   :   h_conv5,
+            'W_conv6 weights'       :   W_conv6,
+            'b_conv6 biases'        :   b_conv6,
+            'h_conv6 activations'   :   h_conv6,
+            'W_conv7 weights'       :   W_conv7,
+            'b_conv7 biases'        :   b_conv7,
+            'h_conv7 activations'   :   h_conv7,
+            'W_conv8 weights'       :   W_conv8,
+            'b_conv8 biases'        :   b_conv8,
+            'h_conv8 activations'   :   h_conv8,
+            'W_fc1 weights'         :   W_fc1,
+            'b_fc1 biases'          :   b_fc1,
+            'h_fc1 activations'     :   h_fc1,
+            'W_fc2 weights'         :   W_fc2,
+            'b_fc2 biases'          :   b_fc2,
+            'prediction activations':   prediction,
+            'sigmoid prediction activations': sigmoid_prediction
+        }
+
+        summary_op = tf.summary.merge([histograms,
                                        loss_summary,
                                        pixel_error_summary,
                                        avg_affinity_summary
                                        ])
+
         image_summary_op = tf.summary.merge([input_summary,
                                              output_patch_summary,
                                              target_x_summary,
@@ -336,6 +318,8 @@ def create_network(inpt, out, learning_rate=0.0001):
                                              h_conv2_image_summary,
                                              h_conv3_image_summary,
                                              h_conv4_image_summary,
+                                             h_conv5_image_summary,
+                                             h_conv6_image_summary,
                                              h_fc1_image_summary
                                              ])
 
@@ -345,6 +329,21 @@ def create_network(inpt, out, learning_rate=0.0001):
         saver = tf.train.Saver()
 
     return Net()
+
+def computeGridSummary(h_conv, num_maps, map_size):
+    # Compute image summaries of the num_maps feature maps
+    cx = 8
+    cy = 12
+    iy = map_size
+    ix = iy
+    h_conv_packed = tf.reshape(h_conv[0], (iy, ix, num_maps))
+    iy += 4
+    ix += 4
+    h_conv_packed = tf.image.resize_image_with_crop_or_pad(h_conv_packed, iy, ix)
+    h_conv_packed = tf.reshape(h_conv_packed, (iy, ix, cy, cx))
+    h_conv_packed = tf.transpose(h_conv_packed, (2,0,3,1)) # cy, iy,  cx, ix
+    h_conv_packed = tf.reshape(h_conv_packed, (1, cy * iy, cx * ix, 1))
+    return h_conv_packed
 
 def train(n_iterations=200000):
     with h5py.File(snemi3d.folder()+'validation-input.h5','r') as validation_input_file:
@@ -548,7 +547,11 @@ def predict():
                 net.saver.restore(sess, snemi3d.folder()+tmp_dir+'model.ckpt')
                 print("Model restored.")
 
-                pred = sess.run(net.sigmoid_prediction,
-                        feed_dict={net.image: mirrored_inpt.reshape(num_layers, input_shape, input_shape, 1)})
-                reshaped_pred = np.einsum('zyxd->dzyx', pred)
-                out[0:2] = reshaped_pred
+                for z in range(num_layers):
+                    pred = sess.run(net.sigmoid_prediction,
+                            feed_dict={net.image: mirrored_inpt[z].reshape(1, input_shape, input_shape, 1)})
+                    reshaped_pred = np.einsum('zyxd->dzyx', pred)
+                    out[0:2, z] = reshaped_pred[:,0]
+                
+                tifffile.imsave('test-boundaries.tif', (out[0] + out[1]) / 2)
+
