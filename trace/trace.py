@@ -18,11 +18,11 @@ from thirdparty.segascorus import utils
 from thirdparty.segascorus.metrics import *
 
 
-FOV = 95
-OUTPT = 101
+FOV = 125
+OUTPT = 151
 INPT = OUTPT + FOV - 1
 
-tmp_dir = 'tmp/deeper_augment_96/'
+tmp_dir = 'tmp/deeper_augment_FOV125/'
 
 
 def weight_variable(name, shape):
@@ -105,19 +105,42 @@ def createHistograms(name2var):
         listOfSummaries.append(tf.summary.histogram(name, var))
     return tf.summary.merge(listOfSummaries)
 
-def create_network(inpt, out, learning_rate=0.0001):
-    class Net:
-        map1 = 96
-        map2 = 96
-        map3 = 96
-        map4 = 96
-        map5 = 96
-        map6 = 96
-        map7 = 96
-        map8 = 96
-        mapfc = 400
 
-        # layer 0
+# Arguments:
+#   - inputs: mini-batch of input images
+#   - is_training: flag specifying whether to use mini-batch or population
+#   statistics
+#   - decay: the decay rate used to calculate exponential moving average
+def batch_norm_layer(inputs, is_training, decay=0.999):
+    epsilon = 1e-3
+    scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
+    offset = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
+    pop_mean = tf.Variable(tf.ones([inputs.get_shape()[-1]]), trainable=False)
+    pop_var = tf.Variable(tf.ones([inputs.get_shape()[-1]]), trainable=False)
+
+    if is_training:
+        batch_mean, batch_var = tf.nn.moments(inputs, axes=[0, 1, 2], keep_dims=False)
+
+        train_mean = tf.assign(pop_mean, pop_mean * decay + batch_mean * (1 - decay))
+        train_var = tf.assign(pop_var, pop_var * decay + batch_var * (1 - decay))
+
+        with tf.control_dependencies([train_mean, train_var]):
+            return tf.nn.batch_normalization(inputs, batch_mean, batch_var, offset, scale, epsilon)
+    else:
+        return tf.nn.batch_normalization(inputs, pop_mean, pop_var, offset, scale, epsilon)
+
+def create_network(learning_rate=0.0001):
+    class Net:
+        map1 = 150
+        map2 = 150
+        map3 = 150
+        map4 = 150
+        map5 = 150
+        map6 = 150
+        map7 = 150
+        map8 = 150
+        mapfc = 600
+
         image = tf.placeholder(tf.float32, shape=[None, inpt, inpt, 1])
         target = tf.placeholder(tf.float32, shape=[None, out, out, 2])
         input_summary = tf.summary.image('input image', image)
@@ -127,21 +150,30 @@ def create_network(inpt, out, learning_rate=0.0001):
         target_y_summary = tf.summary.image('target y affinities', target[:,:,:,1:])
 
 
-        # Convolutional/max-pool module 2
-        #
+        # Convolutional/max-pool module 1
+
         W_conv1 = weight_variable('W_conv1', [3, 3, 1, map1])
-        b_conv1 = unbiased_bias_variable('b_conv1', [map1])
-        h_conv1 = tf.nn.elu(same_conv2d(image, W_conv1, dilation=1) + b_conv1)
+        h_conv1 = same_conv2d(image, W_conv1, dilation=1)
+        bn1 = batch_norm_layer(h_conv1)
+        layer1 = tf.nn.elu(bn1)
 
         h_conv1_packed = computeGridSummary(h_conv1, map1, inpt)
-        h_conv1_image_summary = tf.summary.image('Layer 1 activations', h_conv1_packed)
+        h_conv1_image_summary = tf.summary.image('Layer 1 convolution', h_conv1_packed)
+        bn1_packed = computeGridSummary(bn1, map1, inpt)
+        bn1_image_summary = tf.summary.image('Layer 1 batch-normalized convolution', bn1_packed)
+        layer1_packed = computeGridSummary(layer1, map1, inpt)
+        layer1_image_summary = tf.summary.image('Layer 1 activations', layer1_packed)
 
         W_conv2 = weight_variable('W_conv2', [4, 4, map1, map2])
         b_conv2 = unbiased_bias_variable('b_conv2', [map2])
         h_conv2 = tf.nn.elu(conv2d(h_conv1, W_conv2, dilation=1) + b_conv2)
 
-        h_conv2_packed = computeGridSummary(h_conv2, map2, inpt - 3)
+        h_conv2_packed = computeGridSummary(h_conv2, map2, inpt)
         h_conv2_image_summary = tf.summary.image('Layer 2 activations', h_conv2_packed)
+        bn2_packed = computeGridSummary(bn1, map2, inpt)
+        bn2_image_summary = tf.summary.image('Layer 1 batch-normalized convolution', bn2_packed)
+        layer2_packed = computeGridSummary(layer2, map2, inpt)
+        layer2_image_summary = tf.summary.image('Layer 2 activations', layer2_packed)
 
         h_pool1 = max_pool(h_conv2, strides=[1,1], dilation=1)
 
@@ -155,11 +187,11 @@ def create_network(inpt, out, learning_rate=0.0001):
         h_conv3_packed = computeGridSummary(h_conv3, map3, inpt - 3 - 1)
         h_conv3_image_summary = tf.summary.image('Layer 3 activations', h_conv3_packed)
 
-        W_conv4 = weight_variable('W_conv4', [5, 5, map3, map4])
+        W_conv4 = weight_variable('W_conv4', [6, 6, map3, map4])
         b_conv4 = unbiased_bias_variable('b_conv4', [map4])
         h_conv4 = tf.nn.elu(conv2d(h_conv3, W_conv4, dilation=2) + b_conv4)
 
-        h_conv4_packed = computeGridSummary(h_conv4, map4, inpt - 3 - 1 - (4 * 2))
+        h_conv4_packed = computeGridSummary(h_conv4, map4, inpt - 3 - 1 - (5 * 2))
         h_conv4_image_summary = tf.summary.image('Layer 4 activations', h_conv4_packed)
 
         h_pool2 = max_pool(h_conv4, strides=[1,1], dilation=2)
@@ -171,14 +203,14 @@ def create_network(inpt, out, learning_rate=0.0001):
         b_conv5 = unbiased_bias_variable('b_conv5', [map5])
         h_conv5 = tf.nn.elu(same_conv2d(h_pool2, W_conv5, dilation=4) + b_conv5)
 
-        h_conv5_packed = computeGridSummary(h_conv5, map5, inpt - 3 - 1 - (4 * 2) - (2 * 1))
+        h_conv5_packed = computeGridSummary(h_conv5, map5, inpt - 3 - 1 - (5 * 2) - (2 * 1))
         h_conv5_image_summary = tf.summary.image('Layer 5 activations', h_conv5_packed)
 
-        W_conv6 = weight_variable('W_conv6', [4, 4, map5, map6])
+        W_conv6 = weight_variable('W_conv6', [5, 5, map5, map6])
         b_conv6 = unbiased_bias_variable('b_conv6', [map6])
         h_conv6 = tf.nn.elu(conv2d(h_conv5, W_conv6, dilation=4) + b_conv6)
 
-        h_conv6_packed = computeGridSummary(h_conv6, map6, inpt - 3 - 1 - (4 * 2) - (2 * 1) - (3 * 4))
+        h_conv6_packed = computeGridSummary(h_conv6, map6, inpt - 3 - 1 - (5 * 2) - (2 * 1) - (4 * 4))
         h_conv6_image_summary = tf.summary.image('Layer 6 activations', h_conv6_packed)
 
         h_pool3 = max_pool(h_conv6, strides=[1,1], dilation=4)
@@ -190,27 +222,27 @@ def create_network(inpt, out, learning_rate=0.0001):
         b_conv7 = unbiased_bias_variable('b_conv7', [map7])
         h_conv7 = tf.nn.elu(same_conv2d(h_pool3, W_conv7, dilation=8) + b_conv7)
 
-        h_conv7_packed = computeGridSummary(h_conv7, map7, inpt - 3 - 1 - (4 * 2) - (2 * 1) - (3 * 4) - (4 * 1))
+        h_conv7_packed = computeGridSummary(h_conv7, map7, inpt - 3 - 1 - (5 * 2) - (2 * 1) - (4 * 4) - (4 * 1))
         h_conv7_image_summary = tf.summary.image('Layer 7 activations', h_conv7_packed)
 
-        W_conv8 = weight_variable('W_conv8', [4, 4, map7, map8])
+        W_conv8 = weight_variable('W_conv8', [5, 5, map7, map8])
         b_conv8 = unbiased_bias_variable('b_conv8', [map8])
         h_conv8 = tf.nn.elu(conv2d(h_conv7, W_conv8, dilation=8) + b_conv8)
 
-        h_conv8_packed = computeGridSummary(h_conv8, map8, inpt - 3 - 1 - (4 * 2) - (2 * 1) - (3 * 4) - (4 * 1) - (3 * 8))
+        h_conv8_packed = computeGridSummary(h_conv8, map8, inpt - 3 - 1 - (5 * 2) - (2 * 1) - (4 * 4) - (4 * 1) - (4 * 8))
         h_conv8_image_summary = tf.summary.image('Layer 8 activations', h_conv8_packed)
 
         h_pool4 = max_pool(h_conv8, strides=[1,1], dilation=8)
 
 
         # Fully-connected layer 1
-        W_fc1 = weight_variable('W_fc1', [3, 3, map8, mapfc])
+        W_fc1 = weight_variable('W_fc1', [4, 4, map8, mapfc])
         b_fc1 = unbiased_bias_variable('b_fc1', [mapfc])
         h_fc1 = tf.nn.elu(conv2d(h_pool4, W_fc1, dilation=16) + b_fc1)
 
         # Compute image summaries of the 48 feature maps
-        cx = 10
-        cy = 20
+        cx = 20
+        cy = 30
         iy = out
         ix = out
         h_fc1_packed = tf.reshape(h_fc1[0], (iy, ix, mapfc))
@@ -270,37 +302,45 @@ def create_network(inpt, out, learning_rate=0.0001):
 
         histograms = createHistograms({
             'W_conv1 weights'       :   W_conv1,
-            'b_conv1 biases'        :   b_conv1,
-            'h_conv1 activations'   :   h_conv1,
             'W_conv2 weights'       :   W_conv2,
-            'b_conv2 biases'        :   b_conv2,
-            'h_conv2 activations'   :   h_conv2,
             'W_conv3 weights'       :   W_conv3,
-            'b_conv3 biases'        :   b_conv3,
-            'h_conv3 activations'   :   h_conv3,
             'W_conv4 weights'       :   W_conv4,
-            'b_conv4 biases'        :   b_conv4,
-            'h_conv4 activations'   :   h_conv4,
             'W_conv5 weights'       :   W_conv5,
-            'b_conv5 biases'        :   b_conv5,
-            'h_conv5 activations'   :   h_conv5,
             'W_conv6 weights'       :   W_conv6,
-            'b_conv6 biases'        :   b_conv6,
-            'h_conv6 activations'   :   h_conv6,
             'W_conv7 weights'       :   W_conv7,
-            'b_conv7 biases'        :   b_conv7,
-            'h_conv7 activations'   :   h_conv7,
             'W_conv8 weights'       :   W_conv8,
-            'b_conv8 biases'        :   b_conv8,
-            'h_conv8 activations'   :   h_conv8,
             'W_fc1 weights'         :   W_fc1,
+            'W_fc2 weights'         :   W_fc2,
+            'h_conv1 convolutions'  :   h_conv1,
+            'h_conv2 convolutions'  :   h_conv2,
+            'h_conv3 convolutions'  :   h_conv3,
+            'h_conv4 convolutions'  :   h_conv4,
+            'h_conv5 convolutions'  :   h_conv5,
+            'h_conv6 convolutions'  :   h_conv6,
+            'h_conv7 convolutions'  :   h_conv7,
+            'h_conv8 convolutions'  :   h_conv8,
+            'bn1 batch-normalized'  :   bn1,
+            'bn2 batch-normalized'  :   bn2,
+            'bn3 batch-normalized'  :   bn3,
+            'bn4 batch-normalized'  :   bn4,
+            'bn5 batch-normalized'  :   bn5,
+            'bn6 batch-normalized'  :   bn6,
+            'bn7 batch-normalized'  :   bn7,
+            'bn8 batch-normalized'  :   bn8,
+            'layer1 activations'    :   layer1,
+            'layer2 activations'    :   layer2,
+            'layer3 activations'    :   layer3,
+            'layer4 activations'    :   layer4,
+            'layer5 activations'    :   layer5,
+            'layer6 activations'    :   layer6,
+            'layer7 activations'    :   layer7,
+            'layer8 activations'    :   layer8,
             'b_fc1 biases'          :   b_fc1,
             'h_fc1 activations'     :   h_fc1,
-            'W_fc2 weights'         :   W_fc2,
             'b_fc2 biases'          :   b_fc2,
             'prediction activations':   prediction,
             'sigmoid prediction activations': sigmoid_prediction
-        }
+        })
 
         summary_op = tf.summary.merge([histograms,
                                        loss_summary,
@@ -332,8 +372,8 @@ def create_network(inpt, out, learning_rate=0.0001):
 
 def computeGridSummary(h_conv, num_maps, map_size):
     # Compute image summaries of the num_maps feature maps
-    cx = 8
-    cy = 12
+    cx = 10
+    cy = 15
     iy = map_size
     ix = iy
     h_conv_packed = tf.reshape(h_conv[0], (iy, ix, num_maps))
@@ -345,7 +385,7 @@ def computeGridSummary(h_conv, num_maps, map_size):
     h_conv_packed = tf.reshape(h_conv_packed, (1, cy * iy, cx * ix, 1))
     return h_conv_packed
 
-def train(n_iterations=200000):
+def train(n_iterations=300000):
     with h5py.File(snemi3d.folder()+'validation-input.h5','r') as validation_input_file:
         validation_input = validation_input_file['main'][:5,:,:].astype(np.float32) / 255.0
         num_validation_layers = validation_input.shape[0]
@@ -381,7 +421,7 @@ def train(n_iterations=200000):
                     
                         summary_writer.add_summary(summary, step)
 
-                    if step % 100 == 0:
+                    if step % 1000 == 0:
                         image_summary = sess.run(net.image_summary_op,
                             feed_dict={net.image: inputs,
                                        net.target: affinities})
@@ -393,8 +433,6 @@ def train(n_iterations=200000):
                         print("Model saved in file: %s" % save_path)
 
                         # Measure validation error
-
-                        #TODO pad the image with zeros so that the ouput covers the whole dataset
 
                         validation_sigmoid_prediction, validation_pixel_error_summary, mirrored_input_summary = \
                                 sess.run([validation_net.sigmoid_prediction, validation_net.validation_pixel_error_summary, validation_net.mirrored_input_summary],
