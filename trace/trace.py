@@ -3,6 +3,7 @@
 from __future__ import print_function
 from __future__ import division
 
+from collections import OrderedDict
 import os
 import subprocess
 import h5py
@@ -20,7 +21,7 @@ from thirdparty.segascorus.metrics import *
 
 
 FOV = 125
-OUTPT = 151
+OUTPT = 388
 INPT = 572
 
 tmp_dir = 'tmp/unet/'
@@ -44,13 +45,13 @@ def unbiased_bias_variable(name, shape):
   initial = tf.constant(0.0, shape=shape)
   return tf.get_variable(name, initializer=initial)
 
-def conv2d(x, W, dilation=None):
+def conv2d(x, W, dilation=1):
   return tf.nn.convolution(x, W, strides=[1, 1], padding='VALID', dilation_rate= [dilation, dilation])
 
 def same_conv2d(x, W, dilation=None):
   return tf.nn.convolution(x, W, strides=[1, 1], padding='SAME', dilation_rate= [dilation, dilation])
 
-def max_pool(x, dilation=None, strides=[2, 2], window_shape=[2, 2]):
+def max_pool(x, dilation=1, strides=[2, 2], window_shape=[2, 2]):
   return tf.nn.pool(x, window_shape=window_shape, dilation_rate= [dilation, dilation],
                        strides=strides, padding='VALID', pooling_type='MAX')
 
@@ -110,12 +111,12 @@ def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_siz
 
             # Input layer maps a 1-channel image to num_feature_maps channels
             if layer == 0:
-                w1 = weight_variable(layer_str + ' w1', [kernel_size, kernel_size, 1, num_feature_maps]) 
+                w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, 1, num_feature_maps]) 
             else:
-                w1 = weight_variable(layer_str + ' w1', [kernel_size, kernel_size, num_feature_maps//2, num_feature_maps]) 
-            w2 = weight_variable(layer_str + ' w2', [kernel_size, kernel_size, num_feature_maps, num_feature_maps]) 
-            b1 = bias_variable(layer_str + ' b1',  [num_feature_maps])
-            b2 = bias_variable(layer_str + ' b2', [num_feature_maps])
+                w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, num_feature_maps//2, num_feature_maps]) 
+            w2 = weight_variable(layer_str + '_w2', [kernel_size, kernel_size, num_feature_maps, num_feature_maps]) 
+            b1 = bias_variable(layer_str + '_b1',  [num_feature_maps])
+            b2 = bias_variable(layer_str + '_b2', [num_feature_maps])
 
             h_conv1 = tf.nn.dropout(tf.nn.elu(conv2d(in_node, w1) + b1), keep_prob)
             h_conv2 = tf.nn.dropout(tf.nn.elu(conv2d(h_conv1, w2) + b2), keep_prob)
@@ -124,13 +125,13 @@ def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_siz
             weights.append((w1, w2))
             biases.append((b1, b2))
             convs.append((h_conv1, h_conv2))
-            histogram_dict[layer_str + ' in_node'] = in_node
-            histogram_dict[layer_str + ' w1'] = w1
-            histogram_dict[layer_str + ' w2'] = w2
-            histogram_dict[layer_str + ' b1'] = b1
-            histogram_dict[layer_str + ' b2'] = b2
-            histogram_dict[layer_str + ' h_conv1'] = h_conv1
-            histogram_dict[layer_str + ' h_conv2'] = h_conv2
+            histogram_dict[layer_str + '_in_node'] = in_node
+            histogram_dict[layer_str + '_w1'] = w1
+            histogram_dict[layer_str + '_w2'] = w2
+            histogram_dict[layer_str + '_b1'] = b1
+            histogram_dict[layer_str + '_b2'] = b2
+            histogram_dict[layer_str + '_h_conv1'] = h_conv1
+            histogram_dict[layer_str + '_h_conv2'] = h_conv2
 
             size -= 4
 
@@ -151,16 +152,16 @@ def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_siz
             layer_str = 'layer_u' + str(layer)
             num_feature_maps = 2**layer * features_root
 
-            wu = weight_variable(layer_str + ' wu', [kernel_size, kernel_size, num_feature_maps * 2, num_feature_maps])
-            bu = bias_variable(layer_str + ' bu', [num_feature_maps])
+            wu = weight_variable(layer_str + '_wu', [kernel_size, kernel_size, num_feature_maps * 2, num_feature_maps])
+            bu = bias_variable(layer_str + '_bu', [num_feature_maps])
             h_upconv = tf.nn.elu(conv2d_transpose(in_node, wd, stride=2) + bu)
             h_upconv_concat = crop_and_concat(dw_h_convs[layer], h_upconv, batch_size)
             upconvs[layer] = h_upconv_concat
 
-            w1 = weight_variable(layer_str + ' w1', [kernel_size, kernel_size, num_feature_maps * 2, num_feature_maps])
-            w2 = weight_variable(layer_str + ' w2', [kernel_size, kernel_size, num_feature_maps, num_feature_maps])
-            b1 = bias_variable(layer_str + ' b1', [num_feature_maps])
-            b2 = bias_variable(layer_str + ' b2', [num_feature_maps])
+            w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, num_feature_maps * 2, num_feature_maps])
+            w2 = weight_variable(layer_str + '_w2', [kernel_size, kernel_size, num_feature_maps, num_feature_maps])
+            b1 = bias_variable(layer_str + '_b1', [num_feature_maps])
+            b2 = bias_variable(layer_str + '_b2', [num_feature_maps])
 
             h_conv1 = tf.nn.dropout(tf.nn.elu(conv2d(h_upconv_concat, w1) + b1), keep_prob)
             in_node = tf.nn.dropout(tf.nn.elu(conv2d(h_conv1, w2) + b2), keep_prob)
@@ -169,16 +170,16 @@ def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_siz
             weights.append((w1, w2))
             biases.append((b1, b2))
             convs.append((h_conv1, in_node))
-            histogram_dict[layer_str + ' wu'] = wu
-            histogram_dict[layer_str + ' bu'] = bu
-            histogram_dict[layer_str + ' h_upconv'] = h_upconv
-            histogram_dict[layer_str + ' h_upconv_concat'] = h_upconv_concat
-            histogram_dict[layer_str + ' w1'] = w1
-            histogram_dict[layer_str + ' w2'] = w2
-            histogram_dict[layer_str + ' b1'] = b1
-            histogram_dict[layer_str + ' b2'] = b2
-            histogram_dict[layer_str + ' h_conv1'] = h_conv1
-            histogram_dict[layer_str + ' h_conv2'] = in_node
+            histogram_dict[layer_str + '_wu'] = wu
+            histogram_dict[layer_str + '_bu'] = bu
+            histogram_dict[layer_str + '_h_upconv'] = h_upconv
+            histogram_dict[layer_str + '_h_upconv_concat'] = h_upconv_concat
+            histogram_dict[layer_str + '_w1'] = w1
+            histogram_dict[layer_str + '_w2'] = w2
+            histogram_dict[layer_str + '_b1'] = b1
+            histogram_dict[layer_str + '_b2'] = b2
+            histogram_dict[layer_str + '_h_conv1'] = h_conv1
+            histogram_dict[layer_str + '_h_conv2'] = in_node
 
             size *= 2
             size -= 4
@@ -318,17 +319,16 @@ def import_image(path, sess, isInput, fov):
 
 
 def train(n_iterations=200000):
-        input_placeholder = tf.placeholder(tf.float32, shape=(None, None, None, 1))
-        inpt = tf.get_variable('input', shape=tf.shape(input_placeholder))
-        assign_input = tf.assign(inpt, input_placeholder)
+        inpt_placeholder = tf.placeholder(tf.float32, [1, INPT, INPT, 1])
+        inpt = tf.get_variable('input', [1, INPT, INPT, 1])
+        assign_input = tf.assign(inpt, inpt_placeholder)
+
+        target_placeholder = tf.placeholder(tf.float32, [1, OUTPT, OUTPT, 1])
+        target = tf.get_variable('target', [1, OUTPT, OUTPT, 1])
+        assign_target = tf.assign(target, target_placeholder)
         
         with tf.variable_scope('foo'):
             net, padding = create_unet(inpt, target, keep_prob=0.9)
-
-        output_shape = INPT - padding - padding
-        target_placeholder = tf.placeholder(tf.float32, shape=(None, None, None, 1)) # figure out what shape this needs to be
-        target = tf.get_variable('target', shape=tf.shape(target_placeholder)) # needs to be int[], not OUTPUT
-        assign_target = tf.assign(target, target_placeholder)
 
         print ('Run tensorboard to visualize training progress')
         with tf.Session() as sess:
@@ -345,7 +345,7 @@ def train(n_iterations=200000):
                            snemi3d.folder()+tmp_dir, graph=sess.graph)
 
             sess.run(tf.global_variables_initializer())
-            for step, (inputs, boundaries) in enumerate(batch_iterator(padding*2,INPT - padding - padding,INPT)):
+            for step, (inputs, boundaries) in enumerate(batch_iterator(padding*2,OUTPT,INPT)):
                 sess.run(assign_input,
                         feed_dict={input_placeholder: inputs})
                 sess.run(assign_target,
