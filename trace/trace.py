@@ -18,8 +18,8 @@ from thirdparty.segascorus import utils
 from thirdparty.segascorus.metrics import *
 
 
-FOV = 95
-OUTPT = 101
+FOV = 125
+OUTPT = 151
 INPT = OUTPT + FOV - 1
 
 tmp_dir = 'tmp/whole_training_data/'
@@ -99,11 +99,13 @@ def create_simple_network(inpt, out, learning_rate=0.001):
 
     return Net()
 
+
 def createHistograms(name2var):
     listOfSummaries = []
     for name, var in name2var.iteritems():
         listOfSummaries.append(tf.summary.histogram(name, var))
     return tf.summary.merge(listOfSummaries)
+
 
 def create_network(learning_rate=0.0001):
     class Net:
@@ -115,9 +117,8 @@ def create_network(learning_rate=0.0001):
         map6 = 150
         map7 = 150
         map8 = 150
-        mapfc = 400
+        mapfc = 600
 
-        # layer 0
         image = tf.placeholder(tf.float32, shape=[None, None, None, 1])
         target = tf.placeholder(tf.float32, shape=[None, None, None, 2])
         input_summary = tf.summary.image('input image', image)
@@ -140,7 +141,7 @@ def create_network(learning_rate=0.0001):
 
         inpt -= 5
         h_conv1_packed = computeGridSummary(h_conv1, map1, inpt)
-        h_conv1_image_summary = tf.summary.image('Layer 1 activations', h_conv1_packed)
+        h_conv1_image_summary = tf.summary.image('Layer 1 convolution', h_conv1_packed)
 
         inpt -= 6
         W_conv2 = weight_variable('W_conv2', [7, 7, map1, map2])
@@ -250,7 +251,6 @@ def create_network(learning_rate=0.0001):
         y_affinity_summary = tf.summary.image('y-affinity predictions', sigmoid_prediction[:,:,:,1:])
 
         cross_entropy = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(prediction,target))
-        #cross_entropy = tf.reduce_mean(tf.mul(sigmoid_cross_entropy, (target - 1) * (-9) + 1))
         loss_summary = tf.summary.scalar('cross_entropy', cross_entropy)
 
         binary_prediction = tf.round(sigmoid_prediction) 
@@ -276,12 +276,12 @@ def create_network(learning_rate=0.0001):
         training_vi_f_score_merge_summary = tf.summary.scalar('training vi f merge score', vi_f_score_merge)
         training_vi_f_score_split_summary = tf.summary.scalar('training vi f split score', vi_f_score_split)
 
-        val_rand_f_score_summary = tf.summary.scalar('validation rand f score', rand_f_score)
-        val_rand_f_score_merge_summary = tf.summary.scalar('validation rand f merge score', rand_f_score_merge)
-        val_rand_f_score_split_summary = tf.summary.scalar('validation rand f split score', rand_f_score_split)
-        val_vi_f_score_summary = tf.summary.scalar('validation vi f score', vi_f_score)
-        val_vi_f_score_merge_summary = tf.summary.scalar('validation vi f merge score', vi_f_score_merge)
-        val_vi_f_score_split_summary = tf.summary.scalar('validation vi f split score', vi_f_score_split)
+        validation_rand_f_score_summary = tf.summary.scalar('validation rand f score', rand_f_score)
+        validation_rand_f_score_merge_summary = tf.summary.scalar('validation rand f merge score', rand_f_score_merge)
+        validation_rand_f_score_split_summary = tf.summary.scalar('validation rand f split score', rand_f_score_split)
+        validation_vi_f_score_summary = tf.summary.scalar('validation vi f score', vi_f_score)
+        validation_vi_f_score_merge_summary = tf.summary.scalar('validation vi f merge score', vi_f_score_merge)
+        validation_vi_f_score_split_summary = tf.summary.scalar('validation vi f split score', vi_f_score_split)
 
 
         training_score_summary_op = tf.summary.merge([training_rand_f_score_summary,
@@ -292,43 +292,52 @@ def create_network(learning_rate=0.0001):
                                              training_vi_f_score_split_summary
                                             ])
 
-        validation_score_summary_op = tf.summary.merge([val_rand_f_score_summary,
-                                             val_rand_f_score_merge_summary,
-                                             val_rand_f_score_split_summary,
-                                             val_vi_f_score_summary,
-                                             val_vi_f_score_merge_summary,
-                                             val_vi_f_score_split_summary
+        validation_score_summary_op = tf.summary.merge([validation_rand_f_score_summary,
+                                             validation_rand_f_score_merge_summary,
+                                             validation_rand_f_score_split_summary,
+                                             validation_vi_f_score_summary,
+                                             validation_vi_f_score_merge_summary,
+                                             validation_vi_f_score_split_summary
                                             ])
 
         histograms = createHistograms({
             'W_conv1 weights'       :   W_conv1,
-            'b_conv1 biases'        :   b_conv1,
-            'h_conv1 activations'   :   h_conv1,
             'W_conv2 weights'       :   W_conv2,
-            'b_conv2 biases'        :   b_conv2,
-            'h_conv2 activations'   :   h_conv2,
             'W_conv3 weights'       :   W_conv3,
-            'b_conv3 biases'        :   b_conv3,
-            'h_conv3 activations'   :   h_conv3,
             'W_conv4 weights'       :   W_conv4,
-            'b_conv4 biases'        :   b_conv4,
-            'h_conv4 activations'   :   h_conv4,
             'W_conv5 weights'       :   W_conv5,
-            'b_conv5 biases'        :   b_conv5,
-            'h_conv5 activations'   :   h_conv5,
             'W_conv6 weights'       :   W_conv6,
-            'b_conv6 biases'        :   b_conv6,
-            'h_conv6 activations'   :   h_conv6,
             'W_conv7 weights'       :   W_conv7,
-            'b_conv7 biases'        :   b_conv7,
-            'h_conv7 activations'   :   h_conv7,
             'W_conv8 weights'       :   W_conv8,
-            'b_conv8 biases'        :   b_conv8,
-            'h_conv8 activations'   :   h_conv8,
             'W_fc1 weights'         :   W_fc1,
-            'b_fc1 biases'          :   b_fc1,
-            'h_fc1 activations'     :   h_fc1,
             'W_fc2 weights'         :   W_fc2,
+            'h_conv1 convolutions'  :   h_conv1,
+            'h_conv2 convolutions'  :   h_conv2,
+            'h_conv3 convolutions'  :   h_conv3,
+            'h_conv4 convolutions'  :   h_conv4,
+            'h_conv5 convolutions'  :   h_conv5,
+            'h_conv6 convolutions'  :   h_conv6,
+            'h_conv7 convolutions'  :   h_conv7,
+            'h_conv8 convolutions'  :   h_conv8,
+            'h_fc1 fully-connected' :   h_fc1,
+            'bn1 batch-normalized'  :   bn1,
+            'bn2 batch-normalized'  :   bn2,
+            'bn3 batch-normalized'  :   bn3,
+            'bn4 batch-normalized'  :   bn4,
+            'bn5 batch-normalized'  :   bn5,
+            'bn6 batch-normalized'  :   bn6,
+            'bn7 batch-normalized'  :   bn7,
+            'bn8 batch-normalized'  :   bn8,
+            'bn_fc1 batch-normalized' :   bn_fc1,
+            'layer1 activations'    :   layer1,
+            'layer2 activations'    :   layer2,
+            'layer3 activations'    :   layer3,
+            'layer4 activations'    :   layer4,
+            'layer5 activations'    :   layer5,
+            'layer6 activations'    :   layer6,
+            'layer7 activations'    :   layer7,
+            'layer8 activations'    :   layer8,
+            'layer_fc1 activations' :   layer_fc1,
             'b_fc2 biases'          :   b_fc2,
             'prediction activations':   prediction,
             'sigmoid prediction activations': sigmoid_prediction
@@ -352,7 +361,27 @@ def create_network(learning_rate=0.0001):
                                              h_conv4_image_summary,
                                              h_conv5_image_summary,
                                              h_conv6_image_summary,
-                                             h_fc1_image_summary
+                                             h_conv7_image_summary,
+                                             h_conv8_image_summary,
+                                             h_fc1_image_summary,
+                                             bn1_image_summary,
+                                             bn2_image_summary,
+                                             bn3_image_summary,
+                                             bn4_image_summary,
+                                             bn5_image_summary,
+                                             bn6_image_summary,
+                                             bn7_image_summary,
+                                             bn8_image_summary,
+                                             bn_fc1_image_summary,
+                                             layer1_image_summary,
+                                             layer2_image_summary,
+                                             layer3_image_summary,
+                                             layer4_image_summary,
+                                             layer5_image_summary,
+                                             layer6_image_summary,
+                                             layer7_image_summary,
+                                             layer8_image_summary,
+                                             layer_fc1_image_summary,
                                              ])
 
         train_step = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy)
@@ -362,10 +391,14 @@ def create_network(learning_rate=0.0001):
 
     return Net()
 
-def computeGridSummary(h_conv, num_maps, map_size):
+def computeGridSummary(h_conv, num_maps, map_size, width=10, height=0):
+    cx = width
+    if height == 0:
+        cy = num_maps // width
+    else:
+        cy = height
+
     # Compute image summaries of the num_maps feature maps
-    cx = 10
-    cy = num_maps // cx
     iy = map_size
     ix = iy
     h_conv_packed = tf.reshape(h_conv[0], (iy, ix, num_maps))
@@ -401,6 +434,7 @@ def import_image(path, sess, isInput):
         del image_data
 
         return image_t
+
 
 def train(n_iterations=200000):
         with tf.variable_scope('foo'):
@@ -491,6 +525,7 @@ def train(n_iterations=200000):
 
                 if step == n_iterations:
                     break
+
 
 def evaluatePixelError(dataset):
     from tqdm import tqdm
