@@ -22,7 +22,7 @@ FOV = 95
 OUTPT = 101
 INPT = OUTPT + FOV - 1
 
-tmp_dir = 'tmp/large_maps/'
+tmp_dir = 'tmp/whole_training_data/'
 
 
 def weight_variable(name, shape):
@@ -107,15 +107,15 @@ def createHistograms(name2var):
 
 def create_network(learning_rate=0.0001):
     class Net:
-        map1 = 100
-        map2 = 100
-        map3 = 100
+        map1 = 150
+        map2 = 150
+        map3 = 150
         map4 = 150
         map5 = 150
         map6 = 150
-        map7 = 200
-        map8 = 200
-        mapfc = 600
+        map7 = 150
+        map8 = 150
+        mapfc = 400
 
         # layer 0
         image = tf.placeholder(tf.float32, shape=[None, None, None, 1])
@@ -225,7 +225,7 @@ def create_network(learning_rate=0.0001):
 
         # Compute image summaries of the 48 feature maps
         cx = 20
-        cy = 30
+        cy = mapfc // cx
         iy = out
         ix = out
         h_fc1_packed = tf.reshape(h_fc1[0], (iy, ix, mapfc))
@@ -365,7 +365,7 @@ def create_network(learning_rate=0.0001):
 def computeGridSummary(h_conv, num_maps, map_size):
     # Compute image summaries of the num_maps feature maps
     cx = 10
-    cy = num_maps // 10
+    cy = num_maps // cx
     iy = map_size
     ix = iy
     h_conv_packed = tf.reshape(h_conv[0], (iy, ix, num_maps))
