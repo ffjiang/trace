@@ -300,11 +300,13 @@ def computeGridSummary(h_conv, num_maps, map_size, width=16, height=0):
     h_conv_packed = tf.reshape(h_conv_packed, tf.pack([1, cy * iy, cx * ix, 1]))
     return h_conv_packed
 
-def import_image(path, sess, fov):
+def import_image(path, sess, isInput, fov):
     with h5py.File(path, 'r') as f:
         # f['main'] has shape [z,y,x]
-        image_data = f['main'][:].astype(np.float32)
-        image_data = _mirrorAcrossBorders(image_data / 255.0, fov)[:,:,:,np.newaxis]
+        image_data = f['main'][:].astype(np.float32) / 255.0
+        if isInput:
+            image_data = _mirrorAcrossBorders(image_data, fov)
+        image_data = image_data[:,:,:,np.newaxis]
         
         image_ph = tf.placeholder(dtype=image_data.dtype,
                                   shape=image_data.shape)
@@ -336,14 +338,16 @@ def train(n_iterations=200000):
 
         print ('Run tensorboard to visualize training progress')
         with tf.Session() as sess:
-            training_input = import_image(snemi3d.folder()+'training-input.h5', sess, fov=FULL_FOV)
-            training_labels = import_image(snemi3d.folder()+'training-labels.h5', sess, fov=FULL_FOV)
-            validation_input = import_image(snemi3d.folder()+'validation-input.h5', sess, fov=FULL_FOV)
-            validation_labels = import_image(snemi3d.folder()+'validation-labels.h5', sess, fov=FULL_FOV)
+            training_input = import_image(snemi3d.folder()+'training-input.h5', sess, isInput=True, fov=FULL_FOV)
+            training_labels = import_image(snemi3d.folder()+'training-labels.h5', sess, isInput=False, fov=FULL_FOV)
+            validation_input = import_image(snemi3d.folder()+'validation-input.h5', sess, isInput=True, fov=FULL_FOV)
+            validation_labels = import_image(snemi3d.folder()+'validation-labels.h5', sess, isInput=False, fov=FULL_FOV)
 
             num_layers = training_input.get_shape()[0]
             input_size = training_input.get_shape()[1]
+            print(input_size)
             output_size = training_labels.get_shape()[1]
+            print(output_size)
 
             training_input_slice = tf.Variable(tf.zeros([1, input_size, input_size, 1]), trainable=False, collections=[], name='input-slice')
             training_label_slice = tf.Variable(tf.zeros([1, output_size, output_size, 1]), trainable=False, collections=[], name='label-slice')
@@ -379,7 +383,7 @@ def train(n_iterations=200000):
                 
                     summary_writer.add_summary(summary, step)
 
-                if step % 1000 == 0 and step != 0:
+                if step % 1000 == 0:
                     image_summary = sess.run(net.image_summary_op)
                 
                     summary_writer.add_summary(image_summary, step)
@@ -451,8 +455,9 @@ def _evaluateRandError(dataset, sigmoid_prediction, watershed_high=0.9, watershe
     tmp_aff_file = dataset + '-tmp-affinities.h5'
     tmp_label_file = dataset + '-tmp-labels.h5'
     ground_truth_file = dataset + '-generated-labels.h5'
-    
-    affs = transform.affinitize(sigmoid_prediction[:,:,:,0])
+
+    reshapedAffs = np.einsum('zyxd->dzyx')
+    affs = np.concat([reshapedAffs, reshapedAffs])
     with h5py.File(snemi3d.folder()+tmp_dir+tmp_aff_file,'w') as output_file:
         output_file.create_dataset('main', data=affs)
 
