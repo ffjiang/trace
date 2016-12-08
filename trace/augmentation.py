@@ -63,8 +63,7 @@ def batch_iterator(fov, output_patch, input_patch):
         sample = dp.random_sample()
         inpt, label = sample['input'], sample['label']
         inpt = inpt.reshape(1,input_patch,input_patch,1)
-        label = label[0,fov//2:fov//2+output_patch,fov//2:fov//2+output_patch]
-        reshapedLabel = label.reshape(1, output_patch, output_patch, 1) 
+        reshapedLabel = np.einsum('dzyx->zyxd', label[:,:,fov//2:fov//2+output_patch,fov//2:fov//2+output_patch])
         #central output patch, only x,y affinities
         yield inpt, reshapedLabel
 
