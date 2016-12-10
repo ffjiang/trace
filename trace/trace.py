@@ -28,7 +28,7 @@ FULL_FOV = 191
 FULL_INPT = 702
 FULL_OUTPT = 512
 
-tmp_dir = 'tmp/unet_dropout_varying_lr_0.0001/'
+tmp_dir = 'tmp/unet_lr_0.0001/'
 
 
 def weight_variable(name, shape):
@@ -128,8 +128,8 @@ def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_siz
             b2 = bias_variable(layer_str + '_b2', [num_feature_maps])
 
             conv1 = conv2d(in_node, w1)
-            h_conv1 = dropout(tf.nn.elu(conv1 + b1), 0.9)
-            h_conv2 = dropout(tf.nn.elu(conv2d(h_conv1, w2) + b2), 0.9)
+            h_conv1 = dropout(tf.nn.elu(conv1 + b1), keep_prob)
+            h_conv2 = dropout(tf.nn.elu(conv2d(h_conv1, w2) + b2), keep_prob)
             dw_h_convs[layer] = h_conv2
 
             weights.append((w1, w2))
@@ -173,8 +173,8 @@ def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_siz
             b1 = bias_variable(layer_str + '_b1', [num_feature_maps])
             b2 = bias_variable(layer_str + '_b2', [num_feature_maps])
 
-            h_conv1 = dropout(tf.nn.elu(conv2d(h_upconv_concat, w1) + b1), 0.95)
-            in_node = dropout(tf.nn.elu(conv2d(h_conv1, w2) + b2), 0.95)
+            h_conv1 = dropout(tf.nn.elu(conv2d(h_upconv_concat, w1) + b1), keep_prob)
+            in_node = dropout(tf.nn.elu(conv2d(h_conv1, w2) + b2), keep_prob)
             up_h_convs[layer] = in_node
 
             weights.append((w1, w2))
@@ -339,7 +339,7 @@ def train(n_iterations=200000):
         assign_target = tf.assign(target, target_placeholder)
         
         with tf.variable_scope('foo'):
-            net = create_unet(inpt, target, keep_prob=0.8, learning_rate=0.0001)
+            net = create_unet(inpt, target, keep_prob=1.0, learning_rate=0.0001)
 
         print ('Run tensorboard to visualize training progress')
         with tf.Session() as sess:
