@@ -28,7 +28,7 @@ FULL_FOV = 191
 FULL_INPT = 702
 FULL_OUTPT = 512
 
-tmp_dir = 'tmp/unet/'
+tmp_dir = 'tmp/unet_dropout_varying_lr_0.0001/'
 
 
 def weight_variable(name, shape):
@@ -70,6 +70,11 @@ def crop_and_concat(x1, x2, batch_size):
     size = tf.pack([x2_shape[1], x2_shape[2]])
     x1_crop = tf.image.extract_glimpse(x1, size=size, offsets=offsets, centered=True)
     return tf.concat(3, [x1_crop, x2])
+
+def dropout(x, keep_prob):
+    mask = tf.ones(x.get_shape()[3])
+    dropoutMask = tf.nn.dropout(mask, keep_prob)
+    return x * dropoutMask
 
 
 
@@ -123,8 +128,8 @@ def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_siz
             b2 = bias_variable(layer_str + '_b2', [num_feature_maps])
 
             conv1 = conv2d(in_node, w1)
-            h_conv1 = tf.nn.dropout(tf.nn.elu(conv1 + b1), keep_prob)
-            h_conv2 = tf.nn.dropout(tf.nn.elu(conv2d(h_conv1, w2) + b2), keep_prob)
+            h_conv1 = dropout(tf.nn.elu(conv1 + b1), 0.9)
+            h_conv2 = dropout(tf.nn.elu(conv2d(h_conv1, w2) + b2), 0.9)
             dw_h_convs[layer] = h_conv2
 
             weights.append((w1, w2))
@@ -168,8 +173,8 @@ def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_siz
             b1 = bias_variable(layer_str + '_b1', [num_feature_maps])
             b2 = bias_variable(layer_str + '_b2', [num_feature_maps])
 
-            h_conv1 = tf.nn.dropout(tf.nn.elu(conv2d(h_upconv_concat, w1) + b1), keep_prob)
-            in_node = tf.nn.dropout(tf.nn.elu(conv2d(h_conv1, w2) + b2), keep_prob)
+            h_conv1 = dropout(tf.nn.elu(conv2d(h_upconv_concat, w1) + b1), 0.95)
+            in_node = dropout(tf.nn.elu(conv2d(h_conv1, w2) + b2), 0.95)
             up_h_convs[layer] = in_node
 
             weights.append((w1, w2))
@@ -211,10 +216,10 @@ def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_siz
 
         image_summaries.append(tf.summary.image('input image', image))
         mirrored_input_summary = tf.summary.image('mirrored input image', image)
-        image_summaries.append(tf.summary.image('output patch', image[:,padding:-padding,padding:-padding,:]))
+        image_summaries.append(tf.summary.image('boundary output patch', image[:,padding:-padding,padding:-padding,:]))
         validation_output_patch_summary = tf.summary.image('validation output patch', image[:,padding:-padding,padding:-padding,:])
-        image_summaries.append(tf.summary.image('target boundaries', target))
-        validation_target_summary = tf.summary.image('validation target boundaries', target)
+        image_summaries.append(tf.summary.image('boundary targets', target))
+        validation_target_summary = tf.summary.image('validation boundary targets', target)
 
         image_summaries.append(tf.summary.image('boundary predictions', sigmoid_prediction))
         validation_boundary_summary = tf.summary.image('validation boundary predictions', sigmoid_prediction)
@@ -334,7 +339,7 @@ def train(n_iterations=200000):
         assign_target = tf.assign(target, target_placeholder)
         
         with tf.variable_scope('foo'):
-            net = create_unet(inpt, target, keep_prob=0.9)
+            net = create_unet(inpt, target, keep_prob=0.8, learning_rate=0.0001)
 
         print ('Run tensorboard to visualize training progress')
         with tf.Session() as sess:
@@ -345,9 +350,7 @@ def train(n_iterations=200000):
 
             num_layers = training_input.get_shape()[0]
             input_size = training_input.get_shape()[1]
-            print(input_size)
             output_size = training_labels.get_shape()[1]
-            print(output_size)
 
             training_input_slice = tf.Variable(tf.zeros([1, input_size, input_size, 1]), trainable=False, collections=[], name='input-slice')
             training_label_slice = tf.Variable(tf.zeros([1, output_size, output_size, 1]), trainable=False, collections=[], name='label-slice')
@@ -363,8 +366,8 @@ def train(n_iterations=200000):
 
 
             with tf.variable_scope('foo', reuse=True):
-                training_net = create_unet(training_input_slice, training_label_slice, keep_prob=0.9)
-                validation_net = create_unet(validation_input, validation_labels, keep_prob=0.9)
+                training_net = create_unet(training_input_slice, training_label_slice, keep_prob=1.0)
+                validation_net = create_unet(validation_input, validation_labels, keep_prob=1.0)
 
             summary_writer = tf.train.SummaryWriter(
                            snemi3d.folder()+tmp_dir, graph=sess.graph)
@@ -456,8 +459,8 @@ def _evaluateRandError(dataset, sigmoid_prediction, watershed_high=0.9, watershe
     tmp_label_file = dataset + '-tmp-labels.h5'
     ground_truth_file = dataset + '-generated-labels.h5'
 
-    reshapedAffs = np.einsum('zyxd->dzyx')
-    affs = np.concat([reshapedAffs, reshapedAffs])
+    reshapedAffs = np.einsum('zyxd->dzyx', sigmoid_prediction)
+    affs = np.concatenate([reshapedAffs, reshapedAffs, np.zeros(reshapedAffs.shape)])
     with h5py.File(snemi3d.folder()+tmp_dir+tmp_aff_file,'w') as output_file:
         output_file.create_dataset('main', data=affs)
 
@@ -522,21 +525,20 @@ def _evaluateRandError(dataset, sigmoid_prediction, watershed_high=0.9, watershe
 
 
 def predict():
-    #TODO might need to make several nets, that each take one of the training/validation input pairs
-    inpt = tf.get_variable('input', shape=[None, None, None, 1])
-    inpt_placeholder = tf.placeholder(tf.float32, shape=(None, None, None, 1))
+    inpt = tf.get_variable('input', shape=[1, INPT, INPT, 1])
+    inpt_placeholder = tf.placeholder(tf.float32, shape=(1, INPT, INPT, 1))
     assign_input = tf.assign(inpt, inpt_placeholder)
-    target = tf.get_variable('target', shape=[None, None, None, 1])
+    target = tf.get_variable('target', shape=[1, OUTPT, OUTPT, 1]) # This does not do anything - it is just for the initialization of the net.
     with tf.variable_scope('foo'):
-        net, padding = create_unet(inpt, target, keep_prob=0.9)
+        net = create_unet(inpt, target, keep_prob=1.0)
     with h5py.File(snemi3d.folder()+'test-input.h5','r') as input_file:
         inpt = input_file['main'][:].astype(np.float32) / 255.0
-        mirrored_inpt = _mirrorAcrossBorders(inpt, padding * 2)
+        mirrored_inpt = _mirrorAcrossBorders(inpt, FOV)
         num_layers = mirrored_inpt.shape[0]
         input_shape = mirrored_inpt.shape[1]
-        output_shape = mirrored_inpt.shape[1] - padding - padding
+        output_shape = mirrored_inpt.shape[1] - FOV + 1
         with h5py.File(snemi3d.folder()+'test-affinities.h5','w') as output_file:
-            output_file.create_dataset('main', shape=input_file['main'].shape)
+            output_file.create_dataset('main', shape=(3,) + input_file['main'].shape)
             out = output_file['main']
 
             with tf.Session() as sess:
@@ -544,11 +546,20 @@ def predict():
                 net.saver.restore(sess, snemi3d.folder()+tmp_dir+'model.ckpt')
                 print("Model restored.")
 
-                for z in range(num_layers):
-                    sess.run(assign_input,
-                            feed_dict={input_placeholder: mirrored_inpt[z].reshape(1, input_shape, input_shape, 1)})
-                    pred = sess.run(net.sigmoid_prediction)
-                    out[z] = pred[0,:,:,0]
-                
-                tifffile.imsave('test-boundaries.tif', out)
+                overlappedComputations = np.zeros(input_file['main'].shape)
+                for z in xrange(num_layers):
+                    print('z: ' + str(z + 1) + '/' + str(num_layers))
+                    for y in (range(0, input_shape - INPT + 1, OUTPT) + [input_shape - INPT]):
+                        #print('y: ' + str(y + 1) + '/' + str(input_shape - INPT + 1))
+                        for x in (range(0, input_shape - INPT + 1, OUTPT) + [input_shape - INPT]):
+                            #print('x: ' + str(x + 1) + '/' + str(input_shape - INPT + 1))
+                            sess.run(assign_input,
+                                    feed_dict={inpt_placeholder: mirrored_inpt[z,y:y+INPT,x:x+INPT].reshape(1, INPT, INPT, 1)})
+                            pred = sess.run(net.sigmoid_prediction)
+                            out[0,z,y:y+OUTPT,x:x+OUTPT] += pred[0,:,:,0]
+                            out[1,z,y:y+OUTPT,x:x+OUTPT] += pred[0,:,:,0]
+                            overlappedComputations[z,y:y+OUTPT,x:x+OUTPT] += np.ones((OUTPT, OUTPT))
+
+                outBoundaries = np.divide(out[0], overlappedComputations)
+                tifffile.imsave(snemi3d.folder() + 'test-boundaries.tif', outBoundaries)
 
