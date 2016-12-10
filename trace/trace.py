@@ -486,7 +486,7 @@ def _evaluateRandError(dataset, sigmoid_prediction, watershed_high=0.9, watershe
     # Save affinities to temporary file
     tmp_aff_file = dataset + '-tmp-affinities.h5'
     tmp_label_file = dataset + '-tmp-labels.h5'
-    ground_truth_file = dataset + '-labels.h5'
+    ground_truth_file = dataset + '-generated-labels.h5'
 
     with h5py.File(snemi3d.folder()+tmp_dir+tmp_aff_file,'w') as output_file:
         output_file.create_dataset('main', shape=(3, sigmoid_prediction.shape[0], sigmoid_prediction.shape[1], sigmoid_prediction.shape[2]))
