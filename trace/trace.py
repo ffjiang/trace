@@ -22,7 +22,7 @@ FOV = 95
 OUTPT = 101
 INPT = OUTPT + FOV - 1
 
-tmp_dir = 'tmp/large_maps/'
+tmp_dir = 'tmp/moreFullyConvFOV=95lr=0.0001/'
 
 
 def weight_variable(name, shape):
@@ -53,52 +53,6 @@ def max_pool(x, dilation=None, strides=[2, 2], window_shape=[2, 2]):
   return tf.nn.pool(x, window_shape=window_shape, dilation_rate= [dilation, dilation],
                        strides=strides, padding='VALID', pooling_type='MAX')
 
-def create_simple_network(inpt, out, learning_rate=0.001):
-    class Net:
-        # layer 0
-        image = tf.placeholder(tf.float32, shape=[1, inpt, inpt, 1])
-        target = tf.placeholder(tf.float32, shape=[1, out, out, 2])
-        input_summary = tf.summary.image('input image', image)
-        output_patch_summary = tf.summary.image('output patch', image[:,FOV//2:FOV//2+out,FOV//2:FOV//2+out,:])
-        target_x_summary = tf.summary.image('full target x affinities', target[:,:,:,:1])
-        target_y_summary = tf.summary.image('full target y affinities', target[:,:,:,1:])
-
-        # layer 1 - original stride 1
-        W_conv1 = weight_variable('W_conv1', [FOV, FOV, 1, 2])
-        b_conv1 = unbiased_bias_variable('b_conv1', [2])
-        prediction = conv2d(image, W_conv1, dilation=1) + b_conv1
-
-        w1_hist = tf.summary.histogram('W_conv1 weights', W_conv1)
-        b1_hist = tf.summary.histogram('b_conv1 biases', b_conv1)
-        prediction_hist = tf.summary.histogram('prediction activations', prediction)
-
-        sigmoid_prediction = tf.nn.sigmoid(prediction)
-
-        sigmoid_prediction_hist = tf.summary.histogram('sigmoid prediction activations', sigmoid_prediction)
-        x_affinity_summary = tf.summary.image('x-affinity predictions', sigmoid_prediction[:,:,:,:1])
-        y_affinity_summary = tf.summary.image('y-affinity predictions', sigmoid_prediction[:,:,:,1:])
-
-        cross_entropy = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(prediction,target))
-        #cross_entropy = tf.reduce_mean(tf.mul(sigmoid_cross_entropy, (target - 1) * (-9) + 1))
-
-        loss_summary = tf.summary.scalar('cross_entropy', cross_entropy)
-
-        binary_prediction = tf.round(sigmoid_prediction) 
-        pixel_error = tf.reduce_mean(tf.cast(tf.abs(binary_prediction - target), tf.float32))
-        pixel_error_summary = tf.summary.scalar('pixel_error', pixel_error)
-        avg_affinity = tf.reduce_mean(tf.cast(target, tf.float32))
-        avg_affinity_summary = tf.summary.scalar('average_affinity', avg_affinity)
-
-
-        summary_op = tf.merge_all_summaries()
-
-        train_step = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy)
-       
-        # Add ops to save and restore all the variables.
-        saver = tf.train.Saver()
-
-    return Net()
-
 def createHistograms(name2var):
     listOfSummaries = []
     for name, var in name2var.iteritems():
@@ -110,12 +64,12 @@ def create_network(learning_rate=0.0001):
         map1 = 100
         map2 = 100
         map3 = 100
-        map4 = 150
-        map5 = 150
-        map6 = 150
-        map7 = 200
-        map8 = 200
-        mapfc = 600
+        map4 = 100
+        map5 = 100
+        map6 = 100
+        map7 = 100
+        map8 = 100
+        mapfc = 400
 
         # layer 0
         image = tf.placeholder(tf.float32, shape=[None, None, None, 1])
@@ -225,7 +179,7 @@ def create_network(learning_rate=0.0001):
 
         # Compute image summaries of the 48 feature maps
         cx = 20
-        cy = 30
+        cy = 20
         iy = out
         ix = out
         h_fc1_packed = tf.reshape(h_fc1[0], (iy, ix, mapfc))
@@ -532,7 +486,7 @@ def _evaluateRandError(dataset, sigmoid_prediction, watershed_high=0.9, watershe
     # Save affinities to temporary file
     tmp_aff_file = dataset + '-tmp-affinities.h5'
     tmp_label_file = dataset + '-tmp-labels.h5'
-    ground_truth_file = dataset + '-generated-labels.h5'
+    ground_truth_file = dataset + '-labels.h5'
 
     with h5py.File(snemi3d.folder()+tmp_dir+tmp_aff_file,'w') as output_file:
         output_file.create_dataset('main', shape=(3, sigmoid_prediction.shape[0], sigmoid_prediction.shape[1], sigmoid_prediction.shape[2]))
@@ -601,13 +555,13 @@ def _evaluateRandError(dataset, sigmoid_prediction, watershed_high=0.9, watershe
 
 
 def predict():
-    with h5py.File(snemi3d.folder()+'test-input.h5','r') as input_file:
+    with h5py.File(snemi3d.folder()+'train-input.h5','r') as input_file:
         inpt = input_file['main'][:].astype(np.float32) / 255.0
         mirrored_inpt = _mirrorAcrossBorders(inpt, FOV)
         num_layers = mirrored_inpt.shape[0]
         input_shape = mirrored_inpt.shape[1]
         output_shape = mirrored_inpt.shape[1] - FOV + 1
-        with h5py.File(snemi3d.folder()+'test-affinities.h5','w') as output_file:
+        with h5py.File(snemi3d.folder()+'train-gen-affinities.h5','w') as output_file:
             output_file.create_dataset('main', shape=(3,)+input_file['main'].shape)
             out = output_file['main']
 
@@ -624,5 +578,5 @@ def predict():
                     reshaped_pred = np.einsum('zyxd->dzyx', pred)
                     out[0:2,z] = reshaped_pred[:,0]
                 
-                tifffile.imsave('test-boundaries.tif', (out[0] + out[1]) / 2)
+                tifffile.imsave(snemi3d.folder()+tmp_dir+'train-boundaries.tif', (out[0] + out[1]) / 2)
 
