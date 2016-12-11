@@ -28,7 +28,7 @@ FULL_FOV = 191
 FULL_INPT = 702
 FULL_OUTPT = 512
 
-tmp_dir = 'tmp/unet_lr_0.0001/'
+tmp_dir = 'tmp/unet_batchnorm_dropout0.8_lr1e-4_nowarp/'
 
 
 def weight_variable(name, shape):
@@ -84,8 +84,31 @@ def createHistograms(name2var):
         listOfSummaries.append(tf.summary.histogram(name, var))
     return tf.summary.merge(listOfSummaries)
 
+# Arguments:
+#   - inputs: mini-batch of input images
+#   - is_training: flag specifying whether to use mini-batch or population
+#   statistics
+#   - decay: the decay rate used to calculate exponential moving average
+def batch_norm_layer(inputs, is_training, decay=0.9):
+    epsilon = 1e-5
+    scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
+    offset = tf.Variable(tf.zeros([inputs.get_shape()[-1]]))
+    pop_mean = tf.Variable(tf.zeros([inputs.get_shape()[-1]]), trainable=False)
+    pop_var = tf.Variable(tf.ones([inputs.get_shape()[-1]]), trainable=False)
 
-def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_size=3, learning_rate=0.0001):
+    if is_training:
+        batch_mean, batch_var = tf.nn.moments(inputs, axes=[0, 1, 2], keep_dims=False)
+
+        train_mean = tf.assign(pop_mean, pop_mean * decay + batch_mean * (1 - decay))
+        train_var = tf.assign(pop_var, pop_var * decay + batch_var * (1 - decay))
+
+        with tf.control_dependencies([train_mean, train_var]):
+            return tf.nn.batch_normalization(inputs, batch_mean, batch_var, offset, scale, epsilon)
+    else:
+        return tf.nn.batch_normalization(inputs, pop_mean, pop_var, offset, scale, epsilon)
+
+
+def create_unet(image, target, keep_prob, is_training, layers=5, features_root=64, kernel_size=3, learning_rate=0.0001):
     '''
     Creates a new U-Net for the given parametrization.
     
@@ -124,22 +147,20 @@ def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_siz
             else:
                 w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, num_feature_maps//2, num_feature_maps]) 
             w2 = weight_variable(layer_str + '_w2', [kernel_size, kernel_size, num_feature_maps, num_feature_maps]) 
-            b1 = bias_variable(layer_str + '_b1',  [num_feature_maps])
-            b2 = bias_variable(layer_str + '_b2', [num_feature_maps])
 
             conv1 = conv2d(in_node, w1)
-            h_conv1 = dropout(tf.nn.elu(conv1 + b1), keep_prob)
-            h_conv2 = dropout(tf.nn.elu(conv2d(h_conv1, w2) + b2), keep_prob)
+            bn1 = batch_norm_layer(conv1, is_training)
+            h_conv1 = tf.nn.elu(bn1)
+            conv2 = conv2d(h_conv1, w2)
+            bn2 = batch_norm_layer(conv2, is_training)
+            h_conv2 = tf.nn.elu(bn2)
             dw_h_convs[layer] = h_conv2
 
             weights.append((w1, w2))
-            biases.append((b1, b2))
             convs.append((h_conv1, h_conv2))
             histogram_dict[layer_str + '_in_node'] = in_node
             histogram_dict[layer_str + '_w1'] = w1
             histogram_dict[layer_str + '_w2'] = w2
-            histogram_dict[layer_str + '_b1'] = b1
-            histogram_dict[layer_str + '_b2'] = b2
             histogram_dict[layer_str + '_h_conv1'] = h_conv1
             histogram_dict[layer_str + '_h_conv2'] = h_conv2
 
@@ -165,20 +186,27 @@ def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_siz
             wu = weight_variable(layer_str + '_wu', [kernel_size, kernel_size, num_feature_maps, num_feature_maps * 2])
             bu = bias_variable(layer_str + '_bu', [num_feature_maps])
             h_upconv = tf.nn.elu(conv2d_transpose(in_node, wu, stride=2) + bu)
-            h_upconv_concat = crop_and_concat(dw_h_convs[layer], h_upconv, batch_size)
+            h_upconv_concat = dropout(crop_and_concat(dw_h_convs[layer], h_upconv, batch_size), keep_prob)
             upconvs[layer] = h_upconv_concat
 
             w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, num_feature_maps * 2, num_feature_maps])
             w2 = weight_variable(layer_str + '_w2', [kernel_size, kernel_size, num_feature_maps, num_feature_maps])
-            b1 = bias_variable(layer_str + '_b1', [num_feature_maps])
-            b2 = bias_variable(layer_str + '_b2', [num_feature_maps])
 
-            h_conv1 = dropout(tf.nn.elu(conv2d(h_upconv_concat, w1) + b1), keep_prob)
-            in_node = dropout(tf.nn.elu(conv2d(h_conv1, w2) + b2), keep_prob)
+            conv1 = conv2d(h_upconv_concat, w1)
+            bn1 = batch_norm_layer(conv1, is_training)
+            if layer == 0:
+                h_conv1 = dropout(tf.nn.elu(bn1), keep_prob)
+            else:
+                h_conv1 = tf.nn.elu(bn1)
+            conv2 = conv2d(h_conv1, w2)
+            bn2 = batch_norm_layer(conv2, is_training)
+            if layer == 0:
+                in_node = dropout(tf.nn.elu(bn2), keep_prob)
+            else:
+                in_node = tf.nn.elu(bn2)
             up_h_convs[layer] = in_node
 
             weights.append((w1, w2))
-            biases.append((b1, b2))
             convs.append((h_conv1, in_node))
             histogram_dict[layer_str + '_wu'] = wu
             histogram_dict[layer_str + '_bu'] = bu
@@ -186,8 +214,6 @@ def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_siz
             histogram_dict[layer_str + '_h_upconv_concat'] = h_upconv_concat
             histogram_dict[layer_str + '_w1'] = w1
             histogram_dict[layer_str + '_w2'] = w2
-            histogram_dict[layer_str + '_b1'] = b1
-            histogram_dict[layer_str + '_b2'] = b2
             histogram_dict[layer_str + '_h_conv1'] = h_conv1
             histogram_dict[layer_str + '_h_conv2'] = in_node
 
@@ -202,7 +228,7 @@ def create_unet(image, target, keep_prob, layers=5, features_root=64, kernel_siz
         # Output map
         w_o = weight_variable('w_o', [5, 5, features_root, 1])
         b_o = bias_variable('b_o', [1])
-        prediction = conv2d(in_node, w_o) + b_o
+        prediction = dropout(conv2d(in_node, w_o) + b_o, keep_prob)
         sigmoid_prediction = tf.nn.sigmoid(prediction)
 
         histogram_dict['prediction'] = prediction
@@ -339,7 +365,7 @@ def train(n_iterations=200000):
         assign_target = tf.assign(target, target_placeholder)
         
         with tf.variable_scope('foo'):
-            net = create_unet(inpt, target, keep_prob=1.0, learning_rate=0.0001)
+            net = create_unet(inpt, target, keep_prob=0.8, is_training=True, learning_rate=0.0001)
 
         print ('Run tensorboard to visualize training progress')
         with tf.Session() as sess:
@@ -366,14 +392,15 @@ def train(n_iterations=200000):
 
 
             with tf.variable_scope('foo', reuse=True):
-                training_net = create_unet(training_input_slice, training_label_slice, keep_prob=1.0)
-                validation_net = create_unet(validation_input, validation_labels, keep_prob=1.0)
+                training_net = create_unet(training_input_slice, training_label_slice, keep_prob=1.0, is_training=False)
+                validation_net = create_unet(validation_input, validation_labels, keep_prob=1.0, is_training=False)
 
             summary_writer = tf.train.SummaryWriter(
                            snemi3d.folder()+tmp_dir, graph=sess.graph)
 
             sess.run(tf.global_variables_initializer())
-            for step, (inputs, boundaries) in enumerate(batch_iterator(FOV,OUTPT,INPT)):
+            for step_, (inputs, boundaries) in enumerate(batch_iterator(FOV,OUTPT,INPT)):
+                step = step_
                 sess.run(assign_input,
                         feed_dict={inpt_placeholder: inputs})
                 sess.run(assign_target,
@@ -530,7 +557,7 @@ def predict():
     assign_input = tf.assign(inpt, inpt_placeholder)
     target = tf.get_variable('target', shape=[1, OUTPT, OUTPT, 1]) # This does not do anything - it is just for the initialization of the net.
     with tf.variable_scope('foo'):
-        net = create_unet(inpt, target, keep_prob=1.0)
+        net = create_unet(inpt, target, keep_prob=1.0, is_training=True)
     with h5py.File(snemi3d.folder()+'test-input.h5','r') as input_file:
         inpt = input_file['main'][:].astype(np.float32) / 255.0
         mirrored_inpt = _mirrorAcrossBorders(inpt, FOV)
@@ -561,5 +588,5 @@ def predict():
                             overlappedComputations[z,y:y+OUTPT,x:x+OUTPT] += np.ones((OUTPT, OUTPT))
 
                 outBoundaries = np.divide(out[0], overlappedComputations)
-                tifffile.imsave(snemi3d.folder() + 'test-boundaries.tif', outBoundaries)
+                tifffile.imsave(snemi3d.folder() + tmp_dir + 'test-boundaries.tif', outBoundaries)
 
