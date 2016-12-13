@@ -28,7 +28,7 @@ FULL_FOV = 191
 FULL_INPT = 702
 FULL_OUTPT = 512
 
-tmp_dir = 'tmp/unet_batchnorm_dropout0.8_lr1e-4_nowarp/'
+tmp_dir = 'tmp/unet_batchnorm_lr1e-4_backtoaffs/'
 
 
 def weight_variable(name, shape):
@@ -226,8 +226,8 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
 
 
         # Output map
-        w_o = weight_variable('w_o', [5, 5, features_root, 1])
-        b_o = bias_variable('b_o', [1])
+        w_o = weight_variable('w_o', [5, 5, features_root, 2])
+        b_o = bias_variable('b_o', [2])
         prediction = dropout(conv2d(in_node, w_o) + b_o, keep_prob)
         sigmoid_prediction = tf.nn.sigmoid(prediction)
 
@@ -244,11 +244,11 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
         mirrored_input_summary = tf.summary.image('mirrored input image', image)
         image_summaries.append(tf.summary.image('boundary output patch', image[:,padding:-padding,padding:-padding,:]))
         validation_output_patch_summary = tf.summary.image('validation output patch', image[:,padding:-padding,padding:-padding,:])
-        image_summaries.append(tf.summary.image('boundary targets', target))
-        validation_target_summary = tf.summary.image('validation boundary targets', target)
+        image_summaries.append(tf.summary.image('boundary targets', target[:,:,:,:1]))
+        validation_target_summary = tf.summary.image('validation boundary targets', target[:,:,:,:1])
 
-        image_summaries.append(tf.summary.image('boundary predictions', sigmoid_prediction))
-        validation_boundary_summary = tf.summary.image('validation boundary predictions', sigmoid_prediction)
+        image_summaries.append(tf.summary.image('boundary predictions', sigmoid_prediction[:,:,:,:1]))
+        validation_boundary_summary = tf.summary.image('validation boundary predictions', sigmoid_prediction[:,:,:,:1])
 
         binary_prediction = tf.round(sigmoid_prediction) 
         pixel_error = tf.reduce_mean(tf.cast(tf.abs(binary_prediction - target), tf.float32))
@@ -334,10 +334,11 @@ def computeGridSummary(h_conv, num_maps, map_size, width=16, height=0):
 def import_image(path, sess, isInput, fov):
     with h5py.File(path, 'r') as f:
         # f['main'] has shape [z,y,x]
-        image_data = f['main'][:].astype(np.float32) / 255.0
+        image_data = f['main'][:].astype(np.float32)
         if isInput:
-            image_data = _mirrorAcrossBorders(image_data, fov)
-        image_data = image_data[:,:,:,np.newaxis]
+            image_data = _mirrorAcrossBorders(image_data, fov)[:,:,:,np.newaxis] / 255.0
+        else:
+            image_data = np.einsum('dzyx->zyxd', image_data[0:2])
         
         image_ph = tf.placeholder(dtype=image_data.dtype,
                                   shape=image_data.shape)
@@ -360,26 +361,26 @@ def train(n_iterations=200000):
         inpt = tf.get_variable('input', [1, INPT, INPT, 1])
         assign_input = tf.assign(inpt, inpt_placeholder)
 
-        target_placeholder = tf.placeholder(tf.float32, [1, OUTPT, OUTPT, 1])
-        target = tf.get_variable('target', [1, OUTPT, OUTPT, 1])
+        target_placeholder = tf.placeholder(tf.float32, [1, OUTPT, OUTPT, 2])
+        target = tf.get_variable('target', [1, OUTPT, OUTPT, 2])
         assign_target = tf.assign(target, target_placeholder)
         
         with tf.variable_scope('foo'):
-            net = create_unet(inpt, target, keep_prob=0.8, is_training=True, learning_rate=0.0001)
+            net = create_unet(inpt, target, keep_prob=1.0, is_training=True, learning_rate=0.0001)
 
         print ('Run tensorboard to visualize training progress')
         with tf.Session() as sess:
             training_input = import_image(snemi3d.folder()+'training-input.h5', sess, isInput=True, fov=FULL_FOV)
-            training_labels = import_image(snemi3d.folder()+'training-labels.h5', sess, isInput=False, fov=FULL_FOV)
+            training_labels = import_image(snemi3d.folder()+'training-affinities.h5', sess, isInput=False, fov=FULL_FOV)
             validation_input = import_image(snemi3d.folder()+'validation-input.h5', sess, isInput=True, fov=FULL_FOV)
-            validation_labels = import_image(snemi3d.folder()+'validation-labels.h5', sess, isInput=False, fov=FULL_FOV)
+            validation_labels = import_image(snemi3d.folder()+'validation-affinities.h5', sess, isInput=False, fov=FULL_FOV)
 
             num_layers = training_input.get_shape()[0]
             input_size = training_input.get_shape()[1]
             output_size = training_labels.get_shape()[1]
 
             training_input_slice = tf.Variable(tf.zeros([1, input_size, input_size, 1]), trainable=False, collections=[], name='input-slice')
-            training_label_slice = tf.Variable(tf.zeros([1, output_size, output_size, 1]), trainable=False, collections=[], name='label-slice')
+            training_label_slice = tf.Variable(tf.zeros([1, output_size, output_size, 2]), trainable=False, collections=[], name='label-slice')
 
             sess.run(training_input_slice.initializer)
             sess.run(training_label_slice.initializer)
@@ -392,8 +393,8 @@ def train(n_iterations=200000):
 
 
             with tf.variable_scope('foo', reuse=True):
-                training_net = create_unet(training_input_slice, training_label_slice, keep_prob=1.0, is_training=False)
-                validation_net = create_unet(validation_input, validation_labels, keep_prob=1.0, is_training=False)
+                training_net = create_unet(training_input_slice, training_label_slice, keep_prob=1.0, is_training=True)
+                validation_net = create_unet(validation_input, validation_labels, keep_prob=1.0, is_training=True)
 
             summary_writer = tf.train.SummaryWriter(
                            snemi3d.folder()+tmp_dir, graph=sess.graph)
@@ -424,7 +425,7 @@ def train(n_iterations=200000):
 
                     # Measure training errror
 
-                    training_sigmoid_prediction = np.empty((num_layers, output_size, output_size, 1))
+                    training_sigmoid_prediction = np.empty((num_layers, output_size, output_size, 2))
                     for layer in range(num_layers):
                         sess.run(getInputSlice[layer])
                         sess.run(getLabelSlice[layer])
@@ -486,10 +487,19 @@ def _evaluateRandError(dataset, sigmoid_prediction, watershed_high=0.9, watershe
     tmp_label_file = dataset + '-tmp-labels.h5'
     ground_truth_file = dataset + '-generated-labels.h5'
 
+    '''
     reshapedAffs = np.einsum('zyxd->dzyx', sigmoid_prediction)
     affs = np.concatenate([reshapedAffs, reshapedAffs, np.zeros(reshapedAffs.shape)])
     with h5py.File(snemi3d.folder()+tmp_dir+tmp_aff_file,'w') as output_file:
         output_file.create_dataset('main', data=affs)
+    '''
+
+    with h5py.File(snemi3d.folder()+tmp_dir+tmp_aff_file,'w') as output_file:
+        output_file.create_dataset('main', shape=(3, sigmoid_prediction.shape[0], sigmoid_prediction.shape[1], sigmoid_prediction.shape[2]))
+        out = output_file['main']
+
+        reshaped_pred = np.einsum('zyxd->dzyx', sigmoid_prediction)
+        out[0:2,:,:,:] = reshaped_pred
 
 
     # Do watershed segmentation
@@ -555,7 +565,7 @@ def predict():
     inpt = tf.get_variable('input', shape=[1, INPT, INPT, 1])
     inpt_placeholder = tf.placeholder(tf.float32, shape=(1, INPT, INPT, 1))
     assign_input = tf.assign(inpt, inpt_placeholder)
-    target = tf.get_variable('target', shape=[1, OUTPT, OUTPT, 1]) # This does not do anything - it is just for the initialization of the net.
+    target = tf.get_variable('target', shape=[1, OUTPT, OUTPT, 2]) # This does not do anything - it is just for the initialization of the net.
     with tf.variable_scope('foo'):
         net = create_unet(inpt, target, keep_prob=1.0, is_training=True)
     with h5py.File(snemi3d.folder()+'test-input.h5','r') as input_file:
