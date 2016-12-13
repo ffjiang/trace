@@ -422,7 +422,7 @@ def train(n_iterations=200000):
                 
                     summary_writer.add_summary(summary, step)
 
-                if step % 1000 == 0 and step > 10:
+                if step % 500 == 0:
                     image_summary = sess.run(net.image_summary_op)
                 
                     summary_writer.add_summary(image_summary, step)
@@ -431,26 +431,6 @@ def train(n_iterations=200000):
                     save_path = net.saver.save(sess, snemi3d.folder()+tmp_dir + 'model.ckpt')
                     print("Model saved in file: %s" % save_path)
 
-                    # Measure training errror
-
-                    training_sigmoid_prediction = np.empty((num_layers, output_size, output_size, 2))
-                    for layer in range(num_layers):
-                        sess.run(getInputSlice[layer])
-                        sess.run(getLabelSlice[layer])
-                        training_sigmoid_prediction[layer:layer+1] = sess.run(training_net.sigmoid_prediction)
-
-
-                    training_scores = _evaluateRandError('training', training_sigmoid_prediction, watershed_high=0.95)
-                    training_score_summary = sess.run(training_net.training_score_summary_op,
-                             feed_dict={training_net.rand_f_score: training_scores['Rand F-Score Full'],
-                                        training_net.rand_f_score_merge: training_scores['Rand F-Score Merge'],
-                                        training_net.rand_f_score_split: training_scores['Rand F-Score Split'],
-                                        training_net.vi_f_score: training_scores['VI F-Score Full'],
-                                        training_net.vi_f_score_merge: training_scores['VI F-Score Merge'],
-                                        training_net.vi_f_score_split: training_scores['VI F-Score Split'],
-                                })
-
-                    summary_writer.add_summary(training_score_summary, step)
 
                     # Measure validation error
 
@@ -479,6 +459,28 @@ def train(n_iterations=200000):
                                 })
 
                     summary_writer.add_summary(validation_score_summary, step)
+
+                if step % 1000 == 0:
+                    # Measure training error
+
+                    training_sigmoid_prediction = np.empty((num_layers, output_size, output_size, 2))
+                    for layer in range(num_layers):
+                        sess.run(getInputSlice[layer])
+                        sess.run(getLabelSlice[layer])
+                        training_sigmoid_prediction[layer:layer+1] = sess.run(training_net.sigmoid_prediction)
+
+
+                    training_scores = _evaluateRandError('training', training_sigmoid_prediction, watershed_high=0.95)
+                    training_score_summary = sess.run(training_net.training_score_summary_op,
+                             feed_dict={training_net.rand_f_score: training_scores['Rand F-Score Full'],
+                                        training_net.rand_f_score_merge: training_scores['Rand F-Score Merge'],
+                                        training_net.rand_f_score_split: training_scores['Rand F-Score Split'],
+                                        training_net.vi_f_score: training_scores['VI F-Score Full'],
+                                        training_net.vi_f_score_merge: training_scores['VI F-Score Merge'],
+                                        training_net.vi_f_score_split: training_scores['VI F-Score Split'],
+                                })
+
+                    summary_writer.add_summary(training_score_summary, step)
 
                 if step == n_iterations:
                     break
