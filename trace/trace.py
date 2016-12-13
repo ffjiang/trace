@@ -18,11 +18,11 @@ from thirdparty.segascorus import utils
 from thirdparty.segascorus.metrics import *
 
 
-FOV = 125
-OUTPT = 151
+FOV = 95
+OUTPT = 101
 INPT = OUTPT + FOV - 1
 
-tmp_dir = 'tmp/batch_norm/'
+tmp_dir = 'tmp/nobn_FOV95_whole_training/'
 
 
 def weight_variable(name, shape):
@@ -111,11 +111,13 @@ def createHistograms(name2var):
 #   - is_training: flag specifying whether to use mini-batch or population
 #   statistics
 #   - decay: the decay rate used to calculate exponential moving average
-def batch_norm_layer(inputs, is_training, decay=0.999):
-    epsilon = 1e-3
-    scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
-    offset = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
-    pop_mean = tf.Variable(tf.ones([inputs.get_shape()[-1]]), trainable=False)
+def batch_norm_layer(inputs, is_training, decay=0.9):
+    #epsilon = 1e-5
+    #scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
+    offset = tf.Variable(tf.zeros([inputs.get_shape()[-1]]))
+    return inputs + offset
+    '''
+    pop_mean = tf.Variable(tf.zeros([inputs.get_shape()[-1]]), trainable=False)
     pop_var = tf.Variable(tf.ones([inputs.get_shape()[-1]]), trainable=False)
 
     if is_training:
@@ -128,18 +130,19 @@ def batch_norm_layer(inputs, is_training, decay=0.999):
             return tf.nn.batch_normalization(inputs, batch_mean, batch_var, offset, scale, epsilon)
     else:
         return tf.nn.batch_normalization(inputs, pop_mean, pop_var, offset, scale, epsilon)
+    '''
 
-def create_network(is_training, learning_rate=0.0001):
+def create_network(is_training, learning_rate=0.00001):
     class Net:
-        map1 = 150
-        map2 = 150
-        map3 = 150
-        map4 = 150
-        map5 = 150
-        map6 = 150
-        map7 = 150
-        map8 = 150
-        mapfc = 600
+        map1 = 100
+        map2 = 100
+        map3 = 100
+        map4 = 100
+        map5 = 100
+        map6 = 100
+        map7 = 100
+        map8 = 100
+        mapfc = 400
 
         image = tf.placeholder(tf.float32, shape=[None, None, None, 1])
         target = tf.placeholder(tf.float32, shape=[None, None, None, 2])
@@ -162,12 +165,14 @@ def create_network(is_training, learning_rate=0.0001):
         bn1 = batch_norm_layer(h_conv1, is_training)
         layer1 = tf.nn.elu(bn1)
 
+        '''
         h_conv1_packed = computeGridSummary(h_conv1, map1, inpt)
         h_conv1_image_summary = tf.summary.image('Layer 1 convolution', h_conv1_packed)
         bn1_packed = computeGridSummary(bn1, map1, inpt)
         bn1_image_summary = tf.summary.image('Layer 1 batch-normalized convolution', bn1_packed)
         layer1_packed = computeGridSummary(layer1, map1, inpt)
         layer1_image_summary = tf.summary.image('Layer 1 activations', layer1_packed)
+        '''
 
         W_conv2 = weight_variable('W_conv2', [4, 4, map1, map2])
         h_conv2 = conv2d(h_conv1, W_conv2, dilation=1)
@@ -175,12 +180,14 @@ def create_network(is_training, learning_rate=0.0001):
         layer2 = tf.nn.elu(bn2)
 
         inpt -= 3
+        '''
         h_conv2_packed = computeGridSummary(h_conv2, map2, inpt)
         h_conv2_image_summary = tf.summary.image('Layer 2 convolution', h_conv2_packed)
         bn2_packed = computeGridSummary(bn2, map2, inpt)
         bn2_image_summary = tf.summary.image('Layer 2 batch-normalized convolution', bn2_packed)
         layer2_packed = computeGridSummary(layer2, map2, inpt)
         layer2_image_summary = tf.summary.image('Layer 2 activations', layer2_packed)
+        '''
 
         h_pool1 = max_pool(layer2, strides=[1,1], dilation=1)
         inpt -= 1
@@ -193,25 +200,29 @@ def create_network(is_training, learning_rate=0.0001):
         bn3 = batch_norm_layer(h_conv3, is_training)
         layer3 = tf.nn.elu(bn3)
 
+        '''
         h_conv3_packed = computeGridSummary(h_conv3, map3, inpt)
         h_conv3_image_summary = tf.summary.image('Layer 3 convolution', h_conv3_packed)
         bn3_packed = computeGridSummary(bn3, map3, inpt)
         bn3_image_summary = tf.summary.image('Layer 3 batch-normalized convolution', bn3_packed)
         layer3_packed = computeGridSummary(layer3, map3, inpt)
         layer3_image_summary = tf.summary.image('Layer 3 activations', layer3_packed)
+        '''
 
-        W_conv4 = weight_variable('W_conv4', [6, 6, map3, map4])
+        W_conv4 = weight_variable('W_conv4', [5, 5, map3, map4])
         h_conv4 = conv2d(h_conv3, W_conv4, dilation=2)
         bn4 = batch_norm_layer(h_conv4, is_training)
         layer4 = tf.nn.elu(bn4)
 
-        inpt -= 5 * 2
+        inpt -= 4 * 2
+        '''
         h_conv4_packed = computeGridSummary(h_conv4, map4, inpt)
         h_conv4_image_summary = tf.summary.image('Layer 4 convolution', h_conv4_packed)
         bn4_packed = computeGridSummary(bn4, map4, inpt)
         bn4_image_summary = tf.summary.image('Layer 4 batch-normalized convolution', bn4_packed)
         layer4_packed = computeGridSummary(layer4, map4, inpt)
         layer4_image_summary = tf.summary.image('Layer 4 activations', layer4_packed)
+        '''
 
         h_pool2 = max_pool(layer4, strides=[1,1], dilation=2)
         inpt -= 2
@@ -224,25 +235,29 @@ def create_network(is_training, learning_rate=0.0001):
         bn5 = batch_norm_layer(h_conv5, is_training)
         layer5 = tf.nn.elu(bn5)
 
+        '''
         h_conv5_packed = computeGridSummary(h_conv5, map5, inpt)
         h_conv5_image_summary = tf.summary.image('Layer 5 convolution', h_conv5_packed)
         bn5_packed = computeGridSummary(bn5, map5, inpt)
         bn5_image_summary = tf.summary.image('Layer 5 batch-normalized convolution', bn5_packed)
         layer5_packed = computeGridSummary(layer5, map5, inpt)
         layer5_image_summary = tf.summary.image('Layer 5 activations', layer5_packed)
+        '''
 
-        W_conv6 = weight_variable('W_conv6', [5, 5, map5, map6])
+        W_conv6 = weight_variable('W_conv6', [4, 4, map5, map6])
         h_conv6 = conv2d(h_conv5, W_conv6, dilation=4)
         bn6 = batch_norm_layer(h_conv6, is_training)
         layer6 = tf.nn.elu(bn6)
 
-        inpt -= 4 * 4
+        inpt -= 3 * 4
+        '''
         h_conv6_packed = computeGridSummary(h_conv6, map6, inpt)
         h_conv6_image_summary = tf.summary.image('Layer 6 convolution', h_conv6_packed)
         bn6_packed = computeGridSummary(bn6, map6, inpt)
         bn6_image_summary = tf.summary.image('Layer 6 batch-normalized convolution', bn6_packed)
         layer6_packed = computeGridSummary(layer6, map6, inpt)
         layer6_image_summary = tf.summary.image('Layer 6 activations', layer6_packed)
+        '''
 
         h_pool3 = max_pool(layer6, strides=[1,1], dilation=4)
         inpt -= 4
@@ -255,43 +270,49 @@ def create_network(is_training, learning_rate=0.0001):
         bn7 = batch_norm_layer(h_conv7, is_training)
         layer7 = tf.nn.elu(bn7)
 
+        '''
         h_conv7_packed = computeGridSummary(h_conv7, map7, inpt)
         h_conv7_image_summary = tf.summary.image('Layer 7 convolution', h_conv7_packed)
         bn7_packed = computeGridSummary(bn7, map7, inpt)
         bn7_image_summary = tf.summary.image('Layer 7 batch-normalized convolution', bn7_packed)
         layer7_packed = computeGridSummary(layer7, map7, inpt)
         layer7_image_summary = tf.summary.image('Layer 7 activations', layer7_packed)
+        '''
 
-        W_conv8 = weight_variable('W_conv8', [5, 5, map7, map8])
+        W_conv8 = weight_variable('W_conv8', [4, 4, map7, map8])
         h_conv8 = conv2d(h_conv7, W_conv8, dilation=8)
         bn8 = batch_norm_layer(h_conv8, is_training)
         layer8 = tf.nn.elu(bn8)
 
-        inpt -= 4 * 8
+        inpt -= 3 * 8
+        '''
         h_conv8_packed = computeGridSummary(h_conv8, map8, inpt)
         h_conv8_image_summary = tf.summary.image('Layer 8 convolution', h_conv8_packed)
         bn8_packed = computeGridSummary(bn8, map8, inpt)
         bn8_image_summary = tf.summary.image('Layer 8 batch-normalized convolution', bn8_packed)
         layer8_packed = computeGridSummary(layer8, map8, inpt)
         layer8_image_summary = tf.summary.image('Layer 8 activations', layer8_packed)
+        '''
 
         h_pool4 = max_pool(layer8, strides=[1,1], dilation=8)
         inpt -= 8
 
 
         # Fully-connected layer 1
-        W_fc1 = weight_variable('W_fc1', [4, 4, map8, mapfc])
+        W_fc1 = weight_variable('W_fc1', [3, 3, map8, mapfc])
         h_fc1 = conv2d(h_pool4, W_fc1, dilation=16)
         bn_fc1 = batch_norm_layer(h_fc1, is_training)
         layer_fc1 = tf.nn.elu(bn_fc1)
 
-        inpt -= 3 * 16
+        inpt -= 2 * 16
+        '''
         h_fc1_packed = computeGridSummary(h_fc1, mapfc, inpt, width=20)
         h_fc1_image_summary = tf.summary.image('Layer fc1 fully-connected', h_fc1_packed)
         bn_fc1_packed = computeGridSummary(bn_fc1, mapfc, inpt)
         bn_fc1_image_summary = tf.summary.image('Layer fc1 batch-normalized fully-connected', bn_fc1_packed)
         layer_fc1_packed = computeGridSummary(layer_fc1, mapfc, inpt)
         layer_fc1_image_summary = tf.summary.image('Layer fc1 activations', layer_fc1_packed)
+        '''
 
 
         # Fully connected layer 2
@@ -409,35 +430,37 @@ def create_network(is_training, learning_rate=0.0001):
                                              target_x_summary,
                                              target_y_summary,
                                              x_affinity_summary,
-                                             y_affinity_summary,
-                                             h_conv1_image_summary,
-                                             h_conv2_image_summary,
-                                             h_conv3_image_summary,
-                                             h_conv4_image_summary,
-                                             h_conv5_image_summary,
-                                             h_conv6_image_summary,
-                                             h_conv7_image_summary,
-                                             h_conv8_image_summary,
-                                             h_fc1_image_summary,
-                                             bn1_image_summary,
-                                             bn2_image_summary,
-                                             bn3_image_summary,
-                                             bn4_image_summary,
-                                             bn5_image_summary,
-                                             bn6_image_summary,
-                                             bn7_image_summary,
-                                             bn8_image_summary,
-                                             bn_fc1_image_summary,
-                                             layer1_image_summary,
-                                             layer2_image_summary,
-                                             layer3_image_summary,
-                                             layer4_image_summary,
-                                             layer5_image_summary,
-                                             layer6_image_summary,
-                                             layer7_image_summary,
-                                             layer8_image_summary,
-                                             layer_fc1_image_summary,
+                                             y_affinity_summary
                                              ])
+        '''
+        h_conv1_image_summary,
+        h_conv2_image_summary,
+        h_conv3_image_summary,
+        h_conv4_image_summary,
+        h_conv5_image_summary,
+        h_conv6_image_summary,
+        h_conv7_image_summary,
+        h_conv8_image_summary,
+        h_fc1_image_summary,
+        bn1_image_summary,
+        bn2_image_summary,
+        bn3_image_summary,
+        bn4_image_summary,
+        bn5_image_summary,
+        bn6_image_summary,
+        bn7_image_summary,
+        bn8_image_summary,
+        bn_fc1_image_summary,
+        layer1_image_summary,
+        layer2_image_summary,
+        layer3_image_summary,
+        layer4_image_summary,
+        layer5_image_summary,
+        layer6_image_summary,
+        layer7_image_summary,
+        layer8_image_summary,
+        layer_fc1_image_summary,
+        '''
 
         train_step = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy)
        
@@ -493,7 +516,7 @@ def import_image(path, sess, isInput):
 
 def train(n_iterations=200000):
         with tf.variable_scope('foo'):
-            net = create_network(is_training=True)
+            net = create_network(is_training=True, learning_rate=0.0001)
 
         print ('Run tensorboard to visualize training progress')
         with tf.Session() as sess:
@@ -506,7 +529,9 @@ def train(n_iterations=200000):
                            snemi3d.folder()+tmp_dir, graph=sess.graph)
 
             sess.run(tf.global_variables_initializer())
-            for step, (inputs, affinities) in enumerate(batch_iterator(FOV,OUTPT,INPT)):
+            print("Model restored.")
+            for step_, (inputs, affinities) in enumerate(batch_iterator(FOV,OUTPT,INPT)):
+                step = step_
                 sess.run(net.train_step, 
                         feed_dict={net.image: inputs,
                                    net.target: affinities})
@@ -691,18 +716,18 @@ def _evaluateRandError(dataset, sigmoid_prediction, watershed_high=0.9, watershe
 
 
 def predict():
-    with h5py.File(snemi3d.folder()+'test-input.h5','r') as input_file:
+    with h5py.File(snemi3d.folder()+'validation-input.h5','r') as input_file:
         inpt = input_file['main'][:].astype(np.float32) / 255.0
         mirrored_inpt = _mirrorAcrossBorders(inpt, FOV)
         num_layers = mirrored_inpt.shape[0]
         input_shape = mirrored_inpt.shape[1]
         output_shape = mirrored_inpt.shape[1] - FOV + 1
-        with h5py.File(snemi3d.folder()+'test-affinities.h5','w') as output_file:
+        with h5py.File(snemi3d.folder()+'validation-gen-affinities.h5','w') as output_file:
             output_file.create_dataset('main', shape=(3,)+input_file['main'].shape)
             out = output_file['main']
 
             with tf.variable_scope('foo'):
-                net = create_network(is_training=False)
+                net = create_network(is_training=True)
             with tf.Session() as sess:
                 # Restore variables from disk.
                 net.saver.restore(sess, snemi3d.folder()+tmp_dir+'model.ckpt')
@@ -714,5 +739,5 @@ def predict():
                     reshaped_pred = np.einsum('zyxd->dzyx', pred)
                     out[0:2, z] = reshaped_pred[:,0]
                 
-                tifffile.imsave('test-boundaries.tif', (out[0] + out[1]) / 2)
+                tifffile.imsave(snemi3d.folder()+'validation-boundaries.tif', (out[0] + out[1]) / 2)
 
