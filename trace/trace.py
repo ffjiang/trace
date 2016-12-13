@@ -23,12 +23,17 @@ from thirdparty.segascorus.metrics import *
 FOV = 189
 OUTPT = 192
 INPT = 380
+'''
+FOV = 93
+OUTPT = 96
+INPT = 188
+'''
 
 FULL_FOV = 191
 FULL_INPT = 702
 FULL_OUTPT = 512
 
-tmp_dir = 'tmp/unet_batchnorm_lr1e-4_backtoaffs/'
+tmp_dir = 'tmp/unet_lr1e-4_properwarp/'
 
 
 def weight_variable(name, shape):
@@ -90,9 +95,11 @@ def createHistograms(name2var):
 #   statistics
 #   - decay: the decay rate used to calculate exponential moving average
 def batch_norm_layer(inputs, is_training, decay=0.9):
-    epsilon = 1e-5
-    scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
+    #epsilon = 1e-5
+    #scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
     offset = tf.Variable(tf.zeros([inputs.get_shape()[-1]]))
+    return inputs + offset
+    '''
     pop_mean = tf.Variable(tf.zeros([inputs.get_shape()[-1]]), trainable=False)
     pop_var = tf.Variable(tf.ones([inputs.get_shape()[-1]]), trainable=False)
 
@@ -106,6 +113,7 @@ def batch_norm_layer(inputs, is_training, decay=0.9):
             return tf.nn.batch_normalization(inputs, batch_mean, batch_var, offset, scale, epsilon)
     else:
         return tf.nn.batch_normalization(inputs, pop_mean, pop_var, offset, scale, epsilon)
+    '''
 
 
 def create_unet(image, target, keep_prob, is_training, layers=5, features_root=64, kernel_size=3, learning_rate=0.0001):
@@ -400,12 +408,12 @@ def train(n_iterations=200000):
                            snemi3d.folder()+tmp_dir, graph=sess.graph)
 
             sess.run(tf.global_variables_initializer())
-            for step_, (inputs, boundaries) in enumerate(batch_iterator(FOV,OUTPT,INPT)):
+            for step_, (inputs, affinities) in enumerate(batch_iterator(FOV,OUTPT,INPT)):
                 step = step_
                 sess.run(assign_input,
                         feed_dict={inpt_placeholder: inputs})
                 sess.run(assign_target,
-                        feed_dict={target_placeholder: boundaries / 255.0})
+                        feed_dict={target_placeholder: affinities})
                 sess.run(net.train_step)
 
                 if step % 10 == 0:
@@ -414,7 +422,7 @@ def train(n_iterations=200000):
                 
                     summary_writer.add_summary(summary, step)
 
-                if step % 1000 == 0:
+                if step % 1000 == 0 and step > 10:
                     image_summary = sess.run(net.image_summary_op)
                 
                     summary_writer.add_summary(image_summary, step)
