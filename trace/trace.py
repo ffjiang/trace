@@ -33,7 +33,7 @@ FULL_FOV = 191
 FULL_INPT = 702
 FULL_OUTPT = 512
 
-tmp_dir = 'tmp/unet_lr1e-4_properwarp/'
+tmp_dir = 'tmp/unet_lr1e-4_properwarp_bn_properval/'
 
 
 def weight_variable(name, shape):
@@ -95,11 +95,9 @@ def createHistograms(name2var):
 #   statistics
 #   - decay: the decay rate used to calculate exponential moving average
 def batch_norm_layer(inputs, is_training, decay=0.9):
-    #epsilon = 1e-5
-    #scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
+    epsilon = 1e-5
+    scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
     offset = tf.Variable(tf.zeros([inputs.get_shape()[-1]]))
-    return inputs + offset
-    '''
     pop_mean = tf.Variable(tf.zeros([inputs.get_shape()[-1]]), trainable=False)
     pop_var = tf.Variable(tf.ones([inputs.get_shape()[-1]]), trainable=False)
 
@@ -113,8 +111,6 @@ def batch_norm_layer(inputs, is_training, decay=0.9):
             return tf.nn.batch_normalization(inputs, batch_mean, batch_var, offset, scale, epsilon)
     else:
         return tf.nn.batch_normalization(inputs, pop_mean, pop_var, offset, scale, epsilon)
-    '''
-
 
 def create_unet(image, target, keep_prob, is_training, layers=5, features_root=64, kernel_size=3, learning_rate=0.0001):
     '''
@@ -251,18 +247,22 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
         image_summaries.append(tf.summary.image('input image', image))
         mirrored_input_summary = tf.summary.image('mirrored input image', image)
         image_summaries.append(tf.summary.image('boundary output patch', image[:,padding:-padding,padding:-padding,:]))
-        validation_output_patch_summary = tf.summary.image('validation output patch', image[:,padding:-padding,padding:-padding,:])
+        validation_output_patch = tf.placeholder(tf.float32)
+        validation_output_patch_summary = tf.summary.image('validation output patch', validation_output_patch)
         image_summaries.append(tf.summary.image('boundary targets', target[:,:,:,:1]))
-        validation_target_summary = tf.summary.image('validation boundary targets', target[:,:,:,:1])
+        validation_target = tf.placeholder(tf.float32)
+        validation_target_summary = tf.summary.image('validation boundary targets', validation_target[:,:,:,:1])
 
         image_summaries.append(tf.summary.image('boundary predictions', sigmoid_prediction[:,:,:,:1]))
-        validation_boundary_summary = tf.summary.image('validation boundary predictions', sigmoid_prediction[:,:,:,:1])
+        validation_prediction = tf.placeholder(tf.float32)
+        validation_boundary_summary = tf.summary.image('validation boundary predictions', validation_prediction[:,:,:,:1])
 
         binary_prediction = tf.round(sigmoid_prediction) 
         pixel_error = tf.reduce_mean(tf.cast(tf.abs(binary_prediction - target), tf.float32))
         pixel_error_summary = tf.summary.scalar('pixel_error', pixel_error)
         training_pixel_error_summary = tf.summary.scalar('training pixel_error', pixel_error)
-        validation_pixel_error_summary = tf.summary.scalar('validation pixel_error', pixel_error)
+        validation_pixel_error = tf.placeholder(tf.float32)
+        validation_pixel_error_summary = tf.summary.scalar('validation pixel_error', validation_pixel_error)
 
 
         rand_f_score = tf.placeholder(tf.float32)
@@ -378,14 +378,18 @@ def train(n_iterations=200000):
 
         print ('Run tensorboard to visualize training progress')
         with tf.Session() as sess:
-            training_input = import_image(snemi3d.folder()+'training-input.h5', sess, isInput=True, fov=FULL_FOV)
-            training_labels = import_image(snemi3d.folder()+'training-affinities.h5', sess, isInput=False, fov=FULL_FOV)
-            validation_input = import_image(snemi3d.folder()+'validation-input.h5', sess, isInput=True, fov=FULL_FOV)
-            validation_labels = import_image(snemi3d.folder()+'validation-affinities.h5', sess, isInput=False, fov=FULL_FOV)
+            training_input = import_image(snemi3d.folder()+'training-input.h5', sess, isInput=True, fov=FOV)
+            training_labels = import_image(snemi3d.folder()+'training-affinities.h5', sess, isInput=False, fov=FOV)
+            validation_input = import_image(snemi3d.folder()+'validation-input.h5', sess, isInput=True, fov=FOV)
+            validation_labels = import_image(snemi3d.folder()+'validation-affinities.h5', sess, isInput=False, fov=FOV)
 
             num_layers = training_input.get_shape()[0]
             input_size = training_input.get_shape()[1]
             output_size = training_labels.get_shape()[1]
+
+            num_validation_layers = validation_input.get_shape()[0]
+            validation_input_size = validation_input.get_shape()[1]
+            validation_output_size = validation_labels.get_shape()[1]
 
             training_input_slice = tf.Variable(tf.zeros([1, input_size, input_size, 1]), trainable=False, collections=[], name='input-slice')
             training_label_slice = tf.Variable(tf.zeros([1, output_size, output_size, 2]), trainable=False, collections=[], name='label-slice')
@@ -402,7 +406,7 @@ def train(n_iterations=200000):
 
             with tf.variable_scope('foo', reuse=True):
                 training_net = create_unet(training_input_slice, training_label_slice, keep_prob=1.0, is_training=True)
-                validation_net = create_unet(validation_input, validation_labels, keep_prob=1.0, is_training=True)
+                validation_net = create_unet(inpt, target, keep_prob=1.0, is_training=True)
 
             summary_writer = tf.train.SummaryWriter(
                            snemi3d.folder()+tmp_dir, graph=sess.graph)
@@ -433,17 +437,85 @@ def train(n_iterations=200000):
 
 
                     # Measure validation error
+                    combinedPrediction = np.zeros((num_validation_layers, validation_output_size, validation_output_size, 2))
+                    overlappedComputations = np.zeros((num_validation_layers, validation_output_size, validation_output_size, 2))
+                    for z in xrange(num_validation_layers):
+                        for y in (range(0, validation_input_size - INPT + 1, OUTPT//2) + [validation_input_size - INPT]):
+                            for x in (range(0, validation_input_size - INPT + 1, OUTPT//2) + [validation_input_size - INPT]):
+                                input_patch = sess.run(validation_input[z:z+1,y:y+INPT,x:x+INPT,:])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+                                        
+                                # Apply flipping and rotations
 
-                    validation_sigmoid_prediction, validation_pixel_error_summary, mirrored_input_summary, validation_output_patch_summary, validation_target_summary, validation_boundary_summary = \
-                            sess.run([validation_net.sigmoid_prediction, 
-                                      validation_net.validation_pixel_error_summary,
-                                      validation_net.mirrored_input_summary,
-                                      validation_net.validation_output_patch_summary,
-                                      validation_net.validation_target_summary,
-                                      validation_net.validation_boundary_summary])
+                                # Rotate 90 anti-clockwise
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.rot90(pred[0,:,:,0], 3)
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
 
-                    summary_writer.add_summary(mirrored_input_summary, step)
+                                # Rotate 180
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.rot90(pred[0,:,:,0], 2)
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                                # Rotate 270
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.rot90(pred[0,:,:,0])
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                                # Fliplr
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                input_patch[0,:,:,0] = np.fliplr(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.fliplr(pred[0,:,:,0])
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                                # Fliplr and rotate 90
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.fliplr(np.rot90(pred[0,:,:,0], 3))
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                                # Fliplr and rotate 180
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.fliplr(np.rot90(pred[0,:,:,0], 2))
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                                # Fliplr and rotate 270
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.fliplr(np.rot90(pred[0,:,:,0]))
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+ 
+                                overlappedComputations[z,y:y+OUTPT,x:x+OUTPT,:] += np.ones((OUTPT, OUTPT, 2)) * 8
+
+                    validation_sigmoid_prediction = np.divide(combinedPrediction, overlappedComputations)
+                    validation_binary_prediction = np.round(validation_sigmoid_prediction) 
+                    validation_pixel_error = np.mean(np.absolute(validation_binary_prediction - sess.run(validation_labels)))
+                    validation_pixel_error_summary = sess.run(validation_net.validation_pixel_error_summary,
+                                                            feed_dict={validation_net.validation_pixel_error: validation_pixel_error})
+
                     summary_writer.add_summary(validation_pixel_error_summary, step)
+
+                    validation_output_patch_summary = sess.run(validation_net.validation_output_patch_summary,
+                            feed_dict={validation_net.validation_output_patch: sess.run(validation_input[:,FOV//2:FOV//2+OUTPUT,FOV//2:FOV//2+OUTPUT,:])})
+                    validation_target_summary = sess.run(validation_net.validation_target_summary,
+                            feed_dict={validation_net.validation_target: sess.run(validation_labels)})
+                    validation_boundary_summary = sess.run(validation_net.validation_boundary_summary,
+                            feed_dict={validation_net.validation_prediction: validation_sigmoid_prediction})
+
                     summary_writer.add_summary(validation_output_patch_summary, step)
                     summary_writer.add_summary(validation_target_summary, step)
                     summary_writer.add_summary(validation_boundary_summary, step)
