@@ -49,7 +49,7 @@ def maybe_create_affinities(dataset):
 
 
 def batch_iterator(fov, output_patch, input_patch):
-    dataset = 'training-mirrored189'
+    dataset = 'train-mirrored189'
     net_spec = {'label':(1,input_patch,input_patch),'input':(1,input_patch,input_patch)}
     params = {'augment': [{'type': 'warp'},
                           {'type': 'grey', 'mode': '2D'},

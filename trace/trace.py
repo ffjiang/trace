@@ -33,7 +33,7 @@ FULL_FOV = 191
 FULL_INPT = 702
 FULL_OUTPT = 512
 
-tmp_dir = 'tmp/unet_lr1e-4_properwarp/'
+tmp_dir = 'tmp/unet_lr1e-4_properwarp_dropout0.8_wt/'
 
 
 def weight_variable(name, shape):
@@ -194,7 +194,7 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
             wu = weight_variable(layer_str + '_wu', [kernel_size, kernel_size, num_feature_maps, num_feature_maps * 2])
             bu = bias_variable(layer_str + '_bu', [num_feature_maps])
             h_upconv = tf.nn.elu(conv2d_transpose(in_node, wu, stride=2) + bu)
-            h_upconv_concat = dropout(crop_and_concat(dw_h_convs[layer], h_upconv, batch_size), keep_prob)
+            h_upconv_concat = crop_and_concat(dw_h_convs[layer], h_upconv, batch_size)
             upconvs[layer] = h_upconv_concat
 
             w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, num_feature_maps * 2, num_feature_maps])
@@ -374,7 +374,7 @@ def train(n_iterations=200000):
         assign_target = tf.assign(target, target_placeholder)
         
         with tf.variable_scope('foo'):
-            net = create_unet(inpt, target, keep_prob=1.0, is_training=True, learning_rate=0.0001)
+            net = create_unet(inpt, target, keep_prob=0.8, is_training=True, learning_rate=0.00001)
 
         print ('Run tensorboard to visualize training progress')
         with tf.Session() as sess:
