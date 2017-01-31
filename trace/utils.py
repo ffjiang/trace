@@ -21,8 +21,13 @@ def generate_files_from_predictions(ckpt_folder, data_prefix, predictions):
             reshaped_pred = np.einsum('zyxd->dzyx', np.expand_dims(predictions[i], axis=0))
             out[0:2, i] = reshaped_pred[:, 0]
 
+        '''
         # Our border is the max of the output
         tifffile.imsave(ckpt_folder + data_prefix + '-map.tif', np.minimum(out[0], out[1]))
+        '''
+
+        # Our border is the average of the output.
+        tifffile.imsave(ckpt_folder + data_prefix + '-map.tif', (out[0] + out[1]) / 2)
 
 
 def __grid_search(data_provider, data_folder, remaining_params, current_params, results_dict):
