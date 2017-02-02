@@ -23,17 +23,18 @@ from thirdparty.segascorus.metrics import *
 FOV = 189
 OUTPT = 192
 INPT = 380
+
 '''
-FOV = 93
-OUTPT = 96
-INPT = 188
+FOV = 161
+OUTPT = 160
+INPT = 320
 '''
 
 FULL_FOV = 191
 FULL_INPT = 702
 FULL_OUTPT = 512
 
-tmp_dir = 'tmp/unet_lr1e-4_properwarp_dropout0.8_wt/'
+tmp_dir = 'tmp/vnet_2017-oldversion/'
 
 
 def weight_variable(name, shape):
@@ -57,8 +58,11 @@ def unbiased_bias_variable(name, shape):
 def conv2d(x, W, dilation=1):
   return tf.nn.convolution(x, W, strides=[1, 1], padding='VALID', dilation_rate= [dilation, dilation])
 
-def same_conv2d(x, W, dilation=None):
-  return tf.nn.convolution(x, W, strides=[1, 1], padding='SAME', dilation_rate= [dilation, dilation])
+def down_conv2d(x, W, dilation=1):
+  return tf.nn.convolution(x, W, strides=[2, 2], padding='SAME', dilation_rate= [dilation, dilation])
+
+def same_conv2d(x, W, dilation=1):
+  return tf.nn.convolution(x, W, strides=[1, 1], padding='VALID', dilation_rate= [dilation, dilation])
 
 def max_pool(x, dilation=1, strides=[2, 2], window_shape=[2, 2]):
   return tf.nn.pool(x, window_shape=window_shape, dilation_rate= [dilation, dilation],
@@ -95,11 +99,9 @@ def createHistograms(name2var):
 #   statistics
 #   - decay: the decay rate used to calculate exponential moving average
 def batch_norm_layer(inputs, is_training, decay=0.9):
-    #epsilon = 1e-5
-    #scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
+    epsilon = 1e-5
+    scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
     offset = tf.Variable(tf.zeros([inputs.get_shape()[-1]]))
-    return inputs + offset
-    '''
     pop_mean = tf.Variable(tf.zeros([inputs.get_shape()[-1]]), trainable=False)
     pop_var = tf.Variable(tf.ones([inputs.get_shape()[-1]]), trainable=False)
 
@@ -113,8 +115,6 @@ def batch_norm_layer(inputs, is_training, decay=0.9):
             return tf.nn.batch_normalization(inputs, batch_mean, batch_var, offset, scale, epsilon)
     else:
         return tf.nn.batch_normalization(inputs, pop_mean, pop_var, offset, scale, epsilon)
-    '''
-
 
 def create_unet(image, target, keep_prob, is_training, layers=5, features_root=64, kernel_size=3, learning_rate=0.0001):
     '''
@@ -153,33 +153,41 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
             if layer == 0:
                 w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, 1, num_feature_maps]) 
             else:
-                w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, num_feature_maps//2, num_feature_maps]) 
+                w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, num_feature_maps // 2, num_feature_maps]) 
             w2 = weight_variable(layer_str + '_w2', [kernel_size, kernel_size, num_feature_maps, num_feature_maps]) 
+            w3 = weight_variable(layer_str + '_w3', [kernel_size, kernel_size, num_feature_maps, num_feature_maps]) 
+            b1 = bias_variable(layer_str + '_b1', [num_feature_maps])
+            b2 = bias_variable(layer_str + '_b2', [num_feature_maps])
+            b3 = bias_variable(layer_str + '_b3', [num_feature_maps])
 
-            conv1 = conv2d(in_node, w1)
-            bn1 = batch_norm_layer(conv1, is_training)
-            h_conv1 = tf.nn.elu(bn1)
-            conv2 = conv2d(h_conv1, w2)
-            bn2 = batch_norm_layer(conv2, is_training)
-            h_conv2 = tf.nn.elu(bn2)
-            dw_h_convs[layer] = h_conv2
+            h_conv1 = tf.nn.elu(same_conv2d(in_node, w1) + b1)
+            h_conv2 = tf.nn.elu(same_conv2d(h_conv1, w2) + b2)
+            h_conv3 = h_conv2# + in_node
+            dw_h_convs[layer] = h_conv3
 
             weights.append((w1, w2))
-            convs.append((h_conv1, h_conv2))
+            convs.append((h_conv1, h_conv2, dw_h_convs[layer]))
             histogram_dict[layer_str + '_in_node'] = in_node
             histogram_dict[layer_str + '_w1'] = w1
             histogram_dict[layer_str + '_w2'] = w2
-            histogram_dict[layer_str + '_h_conv1'] = h_conv1
-            histogram_dict[layer_str + '_h_conv2'] = h_conv2
+            histogram_dict[layer_str + '_w3'] = w3
+            histogram_dict[layer_str + '_b1'] = b1
+            histogram_dict[layer_str + '_b2'] = b2
+            histogram_dict[layer_str + '_b3'] = b3
+            histogram_dict[layer_str + '_activations'] = dw_h_convs[layer]
 
             size -= 4
 
-            h_conv2_packed = computeGridSummary(h_conv2, num_feature_maps, size)
-            image_summaries.append(tf.summary.image(layer_str + '  activations', h_conv2_packed))
+            layer_packed = computeGridSummary(dw_h_convs[layer], num_feature_maps, size)
+            image_summaries.append(tf.summary.image(layer_str + '  activations', layer_packed))
 
-            # If not the bottom layer, do a max-pool
-            if layer < layers -1:
-                pools[layer] = max_pool(h_conv2)
+
+            # If not the bottom layer, do a max-pool (or down-convolution)
+            if layer < layers - 1:
+                w_d = weight_variable(layer_str + '_wd', [2, 2, num_feature_maps, 2 * num_feature_maps])
+                b_d = bias_variable(layer_str + '_bd', [2 * num_feature_maps])
+                #pools[layer] = tf.nn.elu(down_conv2d(dw_h_convs[layer], w_d) + b_d)
+                pools[layer] = max_pool(dw_h_convs[layer])
                 in_node = pools[layer]
                 size //= 2
 
@@ -187,6 +195,7 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
         in_node = dw_h_convs[layers-1]
 
         # Up layers
+        # There is one less up layer than down layer.
         for layer in range(layers - 2, -1, -1):
             layer_str = 'layer_u' + str(layer)
             num_feature_maps = 2**layer * features_root
@@ -199,22 +208,17 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
 
             w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, num_feature_maps * 2, num_feature_maps])
             w2 = weight_variable(layer_str + '_w2', [kernel_size, kernel_size, num_feature_maps, num_feature_maps])
+            w3 = weight_variable(layer_str + '_w3', [kernel_size, kernel_size, num_feature_maps, num_feature_maps])
+            b1 = bias_variable(layer_str + '_b1', [num_feature_maps])
+            b2 = bias_variable(layer_str + '_b2', [num_feature_maps])
+            b3 = bias_variable(layer_str + '_b3', [num_feature_maps])
 
-            conv1 = conv2d(h_upconv_concat, w1)
-            bn1 = batch_norm_layer(conv1, is_training)
-            if layer == 0:
-                h_conv1 = dropout(tf.nn.elu(bn1), keep_prob)
-            else:
-                h_conv1 = tf.nn.elu(bn1)
-            conv2 = conv2d(h_conv1, w2)
-            bn2 = batch_norm_layer(conv2, is_training)
-            if layer == 0:
-                in_node = dropout(tf.nn.elu(bn2), keep_prob)
-            else:
-                in_node = tf.nn.elu(bn2)
+            h_conv1 = tf.nn.elu(same_conv2d(h_upconv_concat, w1) + b1)
+            h_conv2 = tf.nn.elu(same_conv2d(h_conv1, w2) + b2)
+            in_node = h_conv2# + h_upconv
             up_h_convs[layer] = in_node
 
-            weights.append((w1, w2))
+            weights.append((w1, w2, w3))
             convs.append((h_conv1, in_node))
             histogram_dict[layer_str + '_wu'] = wu
             histogram_dict[layer_str + '_bu'] = bu
@@ -222,21 +226,26 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
             histogram_dict[layer_str + '_h_upconv_concat'] = h_upconv_concat
             histogram_dict[layer_str + '_w1'] = w1
             histogram_dict[layer_str + '_w2'] = w2
-            histogram_dict[layer_str + '_h_conv1'] = h_conv1
-            histogram_dict[layer_str + '_h_conv2'] = in_node
+            histogram_dict[layer_str + '_w3'] = w3
+            histogram_dict[layer_str + '_b1'] = b1
+            histogram_dict[layer_str + '_b2'] = b2
+            histogram_dict[layer_str + '_b3'] = b3
+            histogram_dict[layer_str + '_activations'] = up_h_convs[layer]
 
             size *= 2
             size -= 4
 
-            h_conv2_packed = computeGridSummary(in_node, num_feature_maps, size)
-            image_summaries.append(tf.summary.image(layer_str + '  activations', h_conv2_packed))
+            layer_packed = computeGridSummary(in_node, num_feature_maps, size)
+            image_summaries.append(tf.summary.image(layer_str + '  activations', layer_packed))
 
 
 
         # Output map
-        w_o = weight_variable('w_o', [5, 5, features_root, 2])
+        # features_root * 2 because there is one less up layer than
+        # down layer
+        w_o = weight_variable('w_o', [5, 5, features_root, 2]) #* 2, 2])
         b_o = bias_variable('b_o', [2])
-        prediction = dropout(conv2d(in_node, w_o) + b_o, keep_prob)
+        prediction = same_conv2d(in_node, w_o) + b_o
         sigmoid_prediction = tf.nn.sigmoid(prediction)
 
         histogram_dict['prediction'] = prediction
@@ -251,18 +260,22 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
         image_summaries.append(tf.summary.image('input image', image))
         mirrored_input_summary = tf.summary.image('mirrored input image', image)
         image_summaries.append(tf.summary.image('boundary output patch', image[:,padding:-padding,padding:-padding,:]))
-        validation_output_patch_summary = tf.summary.image('validation output patch', image[:,padding:-padding,padding:-padding,:])
+        validation_output_patch = tf.placeholder(tf.float32)
+        validation_output_patch_summary = tf.summary.image('validation output patch', validation_output_patch)
         image_summaries.append(tf.summary.image('boundary targets', target[:,:,:,:1]))
-        validation_target_summary = tf.summary.image('validation boundary targets', target[:,:,:,:1])
+        validation_target = tf.placeholder(tf.float32)
+        validation_target_summary = tf.summary.image('validation boundary targets', validation_target[:,:,:,:1])
 
         image_summaries.append(tf.summary.image('boundary predictions', sigmoid_prediction[:,:,:,:1]))
-        validation_boundary_summary = tf.summary.image('validation boundary predictions', sigmoid_prediction[:,:,:,:1])
+        validation_prediction = tf.placeholder(tf.float32)
+        validation_boundary_summary = tf.summary.image('validation boundary predictions', validation_prediction[:,:,:,:1])
 
         binary_prediction = tf.round(sigmoid_prediction) 
         pixel_error = tf.reduce_mean(tf.cast(tf.abs(binary_prediction - target), tf.float32))
         pixel_error_summary = tf.summary.scalar('pixel_error', pixel_error)
         training_pixel_error_summary = tf.summary.scalar('training pixel_error', pixel_error)
-        validation_pixel_error_summary = tf.summary.scalar('validation pixel_error', pixel_error)
+        validation_pixel_error = tf.placeholder(tf.float32)
+        validation_pixel_error_summary = tf.summary.scalar('validation pixel_error', validation_pixel_error)
 
 
         rand_f_score = tf.placeholder(tf.float32)
@@ -378,14 +391,18 @@ def train(n_iterations=200000):
 
         print ('Run tensorboard to visualize training progress')
         with tf.Session() as sess:
-            training_input = import_image(snemi3d.folder()+'training-input.h5', sess, isInput=True, fov=FULL_FOV)
-            training_labels = import_image(snemi3d.folder()+'training-affinities.h5', sess, isInput=False, fov=FULL_FOV)
-            validation_input = import_image(snemi3d.folder()+'validation-input.h5', sess, isInput=True, fov=FULL_FOV)
-            validation_labels = import_image(snemi3d.folder()+'validation-affinities.h5', sess, isInput=False, fov=FULL_FOV)
+            training_input = import_image(snemi3d.folder()+'training-input.h5', sess, isInput=True, fov=FOV)
+            training_labels = import_image(snemi3d.folder()+'training-affinities.h5', sess, isInput=False, fov=FOV)
+            validation_input = import_image(snemi3d.folder()+'validation-input.h5', sess, isInput=True, fov=FOV)
+            validation_labels = import_image(snemi3d.folder()+'validation-affinities.h5', sess, isInput=False, fov=FOV)
 
             num_layers = training_input.get_shape()[0]
             input_size = training_input.get_shape()[1]
             output_size = training_labels.get_shape()[1]
+
+            num_validation_layers = validation_input.get_shape()[0]
+            validation_input_size = validation_input.get_shape()[1]
+            validation_output_size = validation_labels.get_shape()[1]
 
             training_input_slice = tf.Variable(tf.zeros([1, input_size, input_size, 1]), trainable=False, collections=[], name='input-slice')
             training_label_slice = tf.Variable(tf.zeros([1, output_size, output_size, 2]), trainable=False, collections=[], name='label-slice')
@@ -400,9 +417,11 @@ def train(n_iterations=200000):
                 getLabelSlice.append(training_label_slice.assign(tf.gather(training_labels, [layer])))
 
 
+            print('create training and validation nets')
             with tf.variable_scope('foo', reuse=True):
                 training_net = create_unet(training_input_slice, training_label_slice, keep_prob=1.0, is_training=True)
-                validation_net = create_unet(validation_input, validation_labels, keep_prob=1.0, is_training=True)
+                validation_net = create_unet(inpt, target, keep_prob=1.0, is_training=True)
+            print('done creating nets')
 
             summary_writer = tf.train.SummaryWriter(
                            snemi3d.folder()+tmp_dir, graph=sess.graph)
@@ -433,17 +452,97 @@ def train(n_iterations=200000):
 
 
                     # Measure validation error
+                    combinedPrediction = np.zeros((num_validation_layers, validation_output_size, validation_output_size, 2))
+                    overlappedComputations = np.zeros((num_validation_layers, validation_output_size, validation_output_size, 2))
+                    for z in xrange(num_validation_layers):
+                        print('z: ' + str(z) + '/' + str(num_validation_layers))
+                        for y in (range(0, validation_input_size - INPT + 1, FOV) + [validation_input_size - INPT]):
+                            print('y: ' + str(y) + '/' + str(validation_input_size - INPT + 1))
+                            for x in (range(0, validation_input_size - INPT + 1, FOV) + [validation_input_size - INPT]):
+                                input_patch = sess.run(validation_input[z:z+1,y:y+INPT,x:x+INPT,:])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+                                        
+                                '''
+                                # Apply flipping and rotations
 
-                    validation_sigmoid_prediction, validation_pixel_error_summary, mirrored_input_summary, validation_output_patch_summary, validation_target_summary, validation_boundary_summary = \
-                            sess.run([validation_net.sigmoid_prediction, 
-                                      validation_net.validation_pixel_error_summary,
-                                      validation_net.mirrored_input_summary,
-                                      validation_net.validation_output_patch_summary,
-                                      validation_net.validation_target_summary,
-                                      validation_net.validation_boundary_summary])
+                                # Rotate 90 anti-clockwise
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.rot90(pred[0,:,:,0], 3)
+                                pred[0,:,:,1] = np.rot90(pred[0,:,:,1], 3)
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
 
-                    summary_writer.add_summary(mirrored_input_summary, step)
+                                # Rotate 180
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.rot90(pred[0,:,:,0], 2)
+                                pred[0,:,:,1] = np.rot90(pred[0,:,:,1], 2)
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                                # Rotate 270
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.rot90(pred[0,:,:,0])
+                                pred[0,:,:,1] = np.rot90(pred[0,:,:,1])
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                                # Fliplr
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                input_patch[0,:,:,0] = np.fliplr(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.fliplr(pred[0,:,:,0])
+                                pred[0,:,:,1] = np.fliplr(pred[0,:,:,1])
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                                # Fliplr and rotate 90
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.fliplr(np.rot90(pred[0,:,:,0], 3))
+                                pred[0,:,:,1] = np.fliplr(np.rot90(pred[0,:,:,1], 3))
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                                # Fliplr and rotate 180
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.fliplr(np.rot90(pred[0,:,:,0], 2))
+                                pred[0,:,:,1] = np.fliplr(np.rot90(pred[0,:,:,1], 2))
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                                # Fliplr and rotate 270
+                                input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                                pred = sess.run(validation_net.sigmoid_prediction,
+                                            feed_dict={inpt: input_patch})
+                                pred[0,:,:,0] = np.fliplr(np.rot90(pred[0,:,:,0]))
+                                pred[0,:,:,1] = np.fliplr(np.rot90(pred[0,:,:,1]))
+                                combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+ 
+                                overlappedComputations[z,y:y+OUTPT,x:x+OUTPT,:] += np.ones((OUTPT, OUTPT, 2)) * 8
+                                '''
+                                overlappedComputations[z,y:y+OUTPT,x:x+OUTPT,:] += np.ones((OUTPT, OUTPT, 2))
+
+                    validation_sigmoid_prediction = np.divide(combinedPrediction, overlappedComputations)
+                    validation_binary_prediction = np.round(validation_sigmoid_prediction) 
+                    validation_pixel_error = np.mean(np.absolute(validation_binary_prediction - sess.run(validation_labels)))
+                    validation_pixel_error_summary = sess.run(validation_net.validation_pixel_error_summary,
+                                                            feed_dict={validation_net.validation_pixel_error: validation_pixel_error})
+
                     summary_writer.add_summary(validation_pixel_error_summary, step)
+
+                    validation_output_patch_summary = sess.run(validation_net.validation_output_patch_summary,
+                            feed_dict={validation_net.validation_output_patch: sess.run(validation_input[:,FOV//2:FOV//2+OUTPT,FOV//2:FOV//2+OUTPT,:])})
+                    validation_target_summary = sess.run(validation_net.validation_target_summary,
+                            feed_dict={validation_net.validation_target: sess.run(validation_labels)})
+                    validation_boundary_summary = sess.run(validation_net.validation_boundary_summary,
+                            feed_dict={validation_net.validation_prediction: validation_sigmoid_prediction})
+
                     summary_writer.add_summary(validation_output_patch_summary, step)
                     summary_writer.add_summary(validation_target_summary, step)
                     summary_writer.add_summary(validation_boundary_summary, step)
@@ -461,6 +560,8 @@ def train(n_iterations=200000):
                     summary_writer.add_summary(validation_score_summary, step)
 
                 if step % 1000 == 0:
+                    pass
+                    '''
                     # Measure training error
 
                     training_sigmoid_prediction = np.empty((num_layers, output_size, output_size, 2))
@@ -481,6 +582,7 @@ def train(n_iterations=200000):
                                 })
 
                     summary_writer.add_summary(training_score_summary, step)
+                    '''
 
                 if step == n_iterations:
                     break
@@ -579,8 +681,8 @@ def predict():
     with tf.variable_scope('foo'):
         net = create_unet(inpt, target, keep_prob=1.0, is_training=True)
     with h5py.File(snemi3d.folder()+'test-input.h5','r') as input_file:
-        inpt = input_file['main'][:].astype(np.float32) / 255.0
-        mirrored_inpt = _mirrorAcrossBorders(inpt, FOV)
+        inputs = input_file['main'][:].astype(np.float32) / 255.0
+        mirrored_inpt = _mirrorAcrossBorders(inputs, FOV)
         num_layers = mirrored_inpt.shape[0]
         input_shape = mirrored_inpt.shape[1]
         output_shape = mirrored_inpt.shape[1] - FOV + 1
@@ -593,20 +695,80 @@ def predict():
                 net.saver.restore(sess, snemi3d.folder()+tmp_dir+'model.ckpt')
                 print("Model restored.")
 
-                overlappedComputations = np.zeros(input_file['main'].shape)
+                combinedPrediction = np.zeros((num_layers, output_shape, output_shape, 2))
+                overlappedComputations = np.zeros((num_layers, output_shape, output_shape, 2))
                 for z in xrange(num_layers):
-                    print('z: ' + str(z + 1) + '/' + str(num_layers))
-                    for y in (range(0, input_shape - INPT + 1, OUTPT) + [input_shape - INPT]):
-                        #print('y: ' + str(y + 1) + '/' + str(input_shape - INPT + 1))
-                        for x in (range(0, input_shape - INPT + 1, OUTPT) + [input_shape - INPT]):
-                            #print('x: ' + str(x + 1) + '/' + str(input_shape - INPT + 1))
-                            sess.run(assign_input,
-                                    feed_dict={inpt_placeholder: mirrored_inpt[z,y:y+INPT,x:x+INPT].reshape(1, INPT, INPT, 1)})
-                            pred = sess.run(net.sigmoid_prediction)
-                            out[0,z,y:y+OUTPT,x:x+OUTPT] += pred[0,:,:,0]
-                            out[1,z,y:y+OUTPT,x:x+OUTPT] += pred[0,:,:,0]
-                            overlappedComputations[z,y:y+OUTPT,x:x+OUTPT] += np.ones((OUTPT, OUTPT))
+                    for y in (range(0, input_shape - INPT + 1, 40) + [input_shape - INPT]):
+                        for x in (range(0, input_shape - INPT + 1, 40) + [input_shape - INPT]):
+                            input_patch = np.copy(mirrored_inpt[z:z+1,y:y+INPT,x:x+INPT]).reshape(1, INPT, INPT, 1)
+                            pred = sess.run(net.sigmoid_prediction,
+                                        feed_dict={inpt: input_patch})
+                            combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+                                    
+                            # Apply flipping and rotations
 
-                outBoundaries = np.divide(out[0], overlappedComputations)
-                tifffile.imsave(snemi3d.folder() + tmp_dir + 'test-boundaries.tif', outBoundaries)
+                            # Rotate 90 anti-clockwise
+                            input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                            pred = sess.run(net.sigmoid_prediction,
+                                        feed_dict={inpt: input_patch})
+                            pred[0,:,:,0] = np.rot90(pred[0,:,:,0], 3)
+                            pred[0,:,:,1] = np.rot90(pred[0,:,:,1], 3)
+                            combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                            # Rotate 180
+                            input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                            pred = sess.run(net.sigmoid_prediction,
+                                        feed_dict={inpt: input_patch})
+                            pred[0,:,:,0] = np.rot90(pred[0,:,:,0], 2)
+                            pred[0,:,:,1] = np.rot90(pred[0,:,:,1], 2)
+                            combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                            # Rotate 270
+                            input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                            pred = sess.run(net.sigmoid_prediction,
+                                        feed_dict={inpt: input_patch})
+                            pred[0,:,:,0] = np.rot90(pred[0,:,:,0])
+                            pred[0,:,:,1] = np.rot90(pred[0,:,:,1])
+                            combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                            # Fliplr
+                            input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                            input_patch[0,:,:,0] = np.fliplr(input_patch[0,:,:,0])
+                            pred = sess.run(net.sigmoid_prediction,
+                                        feed_dict={inpt: input_patch})
+                            pred[0,:,:,0] = np.fliplr(pred[0,:,:,0])
+                            pred[0,:,:,1] = np.fliplr(pred[0,:,:,1])
+                            combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                            # Fliplr and rotate 90
+                            input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                            pred = sess.run(net.sigmoid_prediction,
+                                        feed_dict={inpt: input_patch})
+                            pred[0,:,:,0] = np.fliplr(np.rot90(pred[0,:,:,0], 3))
+                            pred[0,:,:,1] = np.fliplr(np.rot90(pred[0,:,:,1], 3))
+                            combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                            # Fliplr and rotate 180
+                            input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                            pred = sess.run(net.sigmoid_prediction,
+                                        feed_dict={inpt: input_patch})
+                            pred[0,:,:,0] = np.fliplr(np.rot90(pred[0,:,:,0], 2))
+                            pred[0,:,:,1] = np.fliplr(np.rot90(pred[0,:,:,1], 2))
+                            combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                            # Fliplr and rotate 270
+                            input_patch[0,:,:,0] = np.rot90(input_patch[0,:,:,0])
+                            pred = sess.run(net.sigmoid_prediction,
+                                        feed_dict={inpt: input_patch})
+                            pred[0,:,:,0] = np.fliplr(np.rot90(pred[0,:,:,0]))
+                            pred[0,:,:,1] = np.fliplr(np.rot90(pred[0,:,:,1]))
+                            combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
+
+                            overlappedComputations[z,y:y+OUTPT,x:x+OUTPT,:] += np.ones((OUTPT, OUTPT, 2)) * 8
+                            
+
+                sigmoid_prediction = np.divide(combinedPrediction, overlappedComputations)
+                out[:2] = np.einsum("zyxd->dzyx", sigmoid_prediction)
+
+                tifffile.imsave(snemi3d.folder() + tmp_dir + 'test-boundaries.tif', (out[0] + out[1]) / 2)
 
