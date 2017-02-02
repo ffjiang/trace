@@ -23,17 +23,18 @@ from thirdparty.segascorus.metrics import *
 FOV = 189
 OUTPT = 192
 INPT = 380
+
 '''
-FOV = 93
-OUTPT = 96
-INPT = 188
+FOV = 161
+OUTPT = 160
+INPT = 320
 '''
 
 FULL_FOV = 191
 FULL_INPT = 702
 FULL_OUTPT = 512
 
-tmp_dir = 'tmp/unet_lr1e-4_properwarp_bn_properval_debugging/'
+tmp_dir = 'tmp/vnet_2017-oldversion/'
 
 
 def weight_variable(name, shape):
@@ -57,8 +58,11 @@ def unbiased_bias_variable(name, shape):
 def conv2d(x, W, dilation=1):
   return tf.nn.convolution(x, W, strides=[1, 1], padding='VALID', dilation_rate= [dilation, dilation])
 
-def same_conv2d(x, W, dilation=None):
-  return tf.nn.convolution(x, W, strides=[1, 1], padding='SAME', dilation_rate= [dilation, dilation])
+def down_conv2d(x, W, dilation=1):
+  return tf.nn.convolution(x, W, strides=[2, 2], padding='SAME', dilation_rate= [dilation, dilation])
+
+def same_conv2d(x, W, dilation=1):
+  return tf.nn.convolution(x, W, strides=[1, 1], padding='VALID', dilation_rate= [dilation, dilation])
 
 def max_pool(x, dilation=1, strides=[2, 2], window_shape=[2, 2]):
   return tf.nn.pool(x, window_shape=window_shape, dilation_rate= [dilation, dilation],
@@ -149,33 +153,41 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
             if layer == 0:
                 w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, 1, num_feature_maps]) 
             else:
-                w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, num_feature_maps//2, num_feature_maps]) 
+                w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, num_feature_maps // 2, num_feature_maps]) 
             w2 = weight_variable(layer_str + '_w2', [kernel_size, kernel_size, num_feature_maps, num_feature_maps]) 
+            w3 = weight_variable(layer_str + '_w3', [kernel_size, kernel_size, num_feature_maps, num_feature_maps]) 
+            b1 = bias_variable(layer_str + '_b1', [num_feature_maps])
+            b2 = bias_variable(layer_str + '_b2', [num_feature_maps])
+            b3 = bias_variable(layer_str + '_b3', [num_feature_maps])
 
-            conv1 = conv2d(in_node, w1)
-            bn1 = batch_norm_layer(conv1, is_training)
-            h_conv1 = tf.nn.elu(bn1)
-            conv2 = conv2d(h_conv1, w2)
-            bn2 = batch_norm_layer(conv2, is_training)
-            h_conv2 = tf.nn.elu(bn2)
-            dw_h_convs[layer] = h_conv2
+            h_conv1 = tf.nn.elu(same_conv2d(in_node, w1) + b1)
+            h_conv2 = tf.nn.elu(same_conv2d(h_conv1, w2) + b2)
+            h_conv3 = h_conv2# + in_node
+            dw_h_convs[layer] = h_conv3
 
             weights.append((w1, w2))
-            convs.append((h_conv1, h_conv2))
+            convs.append((h_conv1, h_conv2, dw_h_convs[layer]))
             histogram_dict[layer_str + '_in_node'] = in_node
             histogram_dict[layer_str + '_w1'] = w1
             histogram_dict[layer_str + '_w2'] = w2
-            histogram_dict[layer_str + '_h_conv1'] = h_conv1
-            histogram_dict[layer_str + '_h_conv2'] = h_conv2
+            histogram_dict[layer_str + '_w3'] = w3
+            histogram_dict[layer_str + '_b1'] = b1
+            histogram_dict[layer_str + '_b2'] = b2
+            histogram_dict[layer_str + '_b3'] = b3
+            histogram_dict[layer_str + '_activations'] = dw_h_convs[layer]
 
             size -= 4
 
-            h_conv2_packed = computeGridSummary(h_conv2, num_feature_maps, size)
-            image_summaries.append(tf.summary.image(layer_str + '  activations', h_conv2_packed))
+            layer_packed = computeGridSummary(dw_h_convs[layer], num_feature_maps, size)
+            image_summaries.append(tf.summary.image(layer_str + '  activations', layer_packed))
 
-            # If not the bottom layer, do a max-pool
-            if layer < layers -1:
-                pools[layer] = max_pool(h_conv2)
+
+            # If not the bottom layer, do a max-pool (or down-convolution)
+            if layer < layers - 1:
+                w_d = weight_variable(layer_str + '_wd', [2, 2, num_feature_maps, 2 * num_feature_maps])
+                b_d = bias_variable(layer_str + '_bd', [2 * num_feature_maps])
+                #pools[layer] = tf.nn.elu(down_conv2d(dw_h_convs[layer], w_d) + b_d)
+                pools[layer] = max_pool(dw_h_convs[layer])
                 in_node = pools[layer]
                 size //= 2
 
@@ -183,6 +195,7 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
         in_node = dw_h_convs[layers-1]
 
         # Up layers
+        # There is one less up layer than down layer.
         for layer in range(layers - 2, -1, -1):
             layer_str = 'layer_u' + str(layer)
             num_feature_maps = 2**layer * features_root
@@ -190,27 +203,22 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
             wu = weight_variable(layer_str + '_wu', [kernel_size, kernel_size, num_feature_maps, num_feature_maps * 2])
             bu = bias_variable(layer_str + '_bu', [num_feature_maps])
             h_upconv = tf.nn.elu(conv2d_transpose(in_node, wu, stride=2) + bu)
-            h_upconv_concat = dropout(crop_and_concat(dw_h_convs[layer], h_upconv, batch_size), keep_prob)
+            h_upconv_concat = crop_and_concat(dw_h_convs[layer], h_upconv, batch_size)
             upconvs[layer] = h_upconv_concat
 
             w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, num_feature_maps * 2, num_feature_maps])
             w2 = weight_variable(layer_str + '_w2', [kernel_size, kernel_size, num_feature_maps, num_feature_maps])
+            w3 = weight_variable(layer_str + '_w3', [kernel_size, kernel_size, num_feature_maps, num_feature_maps])
+            b1 = bias_variable(layer_str + '_b1', [num_feature_maps])
+            b2 = bias_variable(layer_str + '_b2', [num_feature_maps])
+            b3 = bias_variable(layer_str + '_b3', [num_feature_maps])
 
-            conv1 = conv2d(h_upconv_concat, w1)
-            bn1 = batch_norm_layer(conv1, is_training)
-            if layer == 0:
-                h_conv1 = dropout(tf.nn.elu(bn1), keep_prob)
-            else:
-                h_conv1 = tf.nn.elu(bn1)
-            conv2 = conv2d(h_conv1, w2)
-            bn2 = batch_norm_layer(conv2, is_training)
-            if layer == 0:
-                in_node = dropout(tf.nn.elu(bn2), keep_prob)
-            else:
-                in_node = tf.nn.elu(bn2)
+            h_conv1 = tf.nn.elu(same_conv2d(h_upconv_concat, w1) + b1)
+            h_conv2 = tf.nn.elu(same_conv2d(h_conv1, w2) + b2)
+            in_node = h_conv2# + h_upconv
             up_h_convs[layer] = in_node
 
-            weights.append((w1, w2))
+            weights.append((w1, w2, w3))
             convs.append((h_conv1, in_node))
             histogram_dict[layer_str + '_wu'] = wu
             histogram_dict[layer_str + '_bu'] = bu
@@ -218,21 +226,26 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
             histogram_dict[layer_str + '_h_upconv_concat'] = h_upconv_concat
             histogram_dict[layer_str + '_w1'] = w1
             histogram_dict[layer_str + '_w2'] = w2
-            histogram_dict[layer_str + '_h_conv1'] = h_conv1
-            histogram_dict[layer_str + '_h_conv2'] = in_node
+            histogram_dict[layer_str + '_w3'] = w3
+            histogram_dict[layer_str + '_b1'] = b1
+            histogram_dict[layer_str + '_b2'] = b2
+            histogram_dict[layer_str + '_b3'] = b3
+            histogram_dict[layer_str + '_activations'] = up_h_convs[layer]
 
             size *= 2
             size -= 4
 
-            h_conv2_packed = computeGridSummary(in_node, num_feature_maps, size)
-            image_summaries.append(tf.summary.image(layer_str + '  activations', h_conv2_packed))
+            layer_packed = computeGridSummary(in_node, num_feature_maps, size)
+            image_summaries.append(tf.summary.image(layer_str + '  activations', layer_packed))
 
 
 
         # Output map
-        w_o = weight_variable('w_o', [5, 5, features_root, 2])
+        # features_root * 2 because there is one less up layer than
+        # down layer
+        w_o = weight_variable('w_o', [5, 5, features_root, 2]) #* 2, 2])
         b_o = bias_variable('b_o', [2])
-        prediction = dropout(conv2d(in_node, w_o) + b_o, keep_prob)
+        prediction = same_conv2d(in_node, w_o) + b_o
         sigmoid_prediction = tf.nn.sigmoid(prediction)
 
         histogram_dict['prediction'] = prediction
@@ -404,9 +417,11 @@ def train(n_iterations=200000):
                 getLabelSlice.append(training_label_slice.assign(tf.gather(training_labels, [layer])))
 
 
+            print('create training and validation nets')
             with tf.variable_scope('foo', reuse=True):
                 training_net = create_unet(training_input_slice, training_label_slice, keep_prob=1.0, is_training=True)
                 validation_net = create_unet(inpt, target, keep_prob=1.0, is_training=True)
+            print('done creating nets')
 
             summary_writer = tf.train.SummaryWriter(
                            snemi3d.folder()+tmp_dir, graph=sess.graph)
@@ -440,13 +455,16 @@ def train(n_iterations=200000):
                     combinedPrediction = np.zeros((num_validation_layers, validation_output_size, validation_output_size, 2))
                     overlappedComputations = np.zeros((num_validation_layers, validation_output_size, validation_output_size, 2))
                     for z in xrange(num_validation_layers):
-                        for y in (range(0, validation_input_size - INPT + 1, 40) + [validation_input_size - INPT]):
-                            for x in (range(0, validation_input_size - INPT + 1, 40) + [validation_input_size - INPT]):
+                        print('z: ' + str(z) + '/' + str(num_validation_layers))
+                        for y in (range(0, validation_input_size - INPT + 1, FOV) + [validation_input_size - INPT]):
+                            print('y: ' + str(y) + '/' + str(validation_input_size - INPT + 1))
+                            for x in (range(0, validation_input_size - INPT + 1, FOV) + [validation_input_size - INPT]):
                                 input_patch = sess.run(validation_input[z:z+1,y:y+INPT,x:x+INPT,:])
                                 pred = sess.run(validation_net.sigmoid_prediction,
                                             feed_dict={inpt: input_patch})
                                 combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
                                         
+                                '''
                                 # Apply flipping and rotations
 
                                 # Rotate 90 anti-clockwise
@@ -507,6 +525,8 @@ def train(n_iterations=200000):
                                 combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
  
                                 overlappedComputations[z,y:y+OUTPT,x:x+OUTPT,:] += np.ones((OUTPT, OUTPT, 2)) * 8
+                                '''
+                                overlappedComputations[z,y:y+OUTPT,x:x+OUTPT,:] += np.ones((OUTPT, OUTPT, 2))
 
                     validation_sigmoid_prediction = np.divide(combinedPrediction, overlappedComputations)
                     validation_binary_prediction = np.round(validation_sigmoid_prediction) 
@@ -540,6 +560,8 @@ def train(n_iterations=200000):
                     summary_writer.add_summary(validation_score_summary, step)
 
                 if step % 1000 == 0:
+                    pass
+                    '''
                     # Measure training error
 
                     training_sigmoid_prediction = np.empty((num_layers, output_size, output_size, 2))
@@ -560,6 +582,7 @@ def train(n_iterations=200000):
                                 })
 
                     summary_writer.add_summary(training_score_summary, step)
+                    '''
 
                 if step == n_iterations:
                     break
@@ -675,8 +698,8 @@ def predict():
                 combinedPrediction = np.zeros((num_layers, output_shape, output_shape, 2))
                 overlappedComputations = np.zeros((num_layers, output_shape, output_shape, 2))
                 for z in xrange(num_layers):
-                    for y in (range(0, input_shape - INPT + 1, OUTPT) + [input_shape - INPT]):
-                        for x in (range(0, input_shape - INPT + 1, OUTPT) + [input_shape - INPT]):
+                    for y in (range(0, input_shape - INPT + 1, 40) + [input_shape - INPT]):
+                        for x in (range(0, input_shape - INPT + 1, 40) + [input_shape - INPT]):
                             input_patch = np.copy(mirrored_inpt[z:z+1,y:y+INPT,x:x+INPT]).reshape(1, INPT, INPT, 1)
                             pred = sess.run(net.sigmoid_prediction,
                                         feed_dict={inpt: input_patch})
