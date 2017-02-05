@@ -34,7 +34,7 @@ FULL_FOV = 191
 FULL_INPT = 702
 FULL_OUTPT = 512
 
-tmp_dir = 'tmp/vnet_2017-oldversion/'
+tmp_dir = 'tmp/vnet_2017-actual-skip-connect-residuals/'
 
 
 def weight_variable(name, shape):
@@ -73,12 +73,15 @@ def conv2d_transpose(x, W, stride):
     output_shape = tf.pack([x_shape[0], x_shape[1] * 2, x_shape[2] * 2, x_shape[3] // 2])
     return tf.nn.conv2d_transpose(x, W, output_shape, strides=[1, stride, stride, 1], padding='SAME')
 
-def crop_and_concat(x1, x2, batch_size):
+def crop(x1, x2, batch_size):
     offsets = tf.zeros(tf.pack([batch_size, 2]), dtype=tf.float32)
     x2_shape = tf.shape(x2)
     size = tf.pack([x2_shape[1], x2_shape[2]])
-    x1_crop = tf.image.extract_glimpse(x1, size=size, offsets=offsets, centered=True)
-    return tf.concat(3, [x1_crop, x2])
+    return tf.image.extract_glimpse(x1, size=size, offsets=offsets, centered=True)
+
+def crop_and_concat(x1, x2, batch_size):
+    return tf.concat(3, [crop(x1, x2, batch_size), x2])
+
 
 def dropout(x, keep_prob):
     mask = tf.ones(x.get_shape()[3])
@@ -162,7 +165,14 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
 
             h_conv1 = tf.nn.elu(same_conv2d(in_node, w1) + b1)
             h_conv2 = tf.nn.elu(same_conv2d(h_conv1, w2) + b2)
-            h_conv3 = h_conv2# + in_node
+
+            in_node_cropped = crop(in_node, h_conv2, batch_size)
+            if layer == 0:
+                in_node_cropped = tf.tile(in_node_cropped, (1,1,1,num_feature_maps))
+            else:
+                in_node_cropped = tf.tile(in_node_cropped, (1,1,1,2))
+
+            h_conv3 = h_conv2 + in_node_cropped
             dw_h_convs[layer] = h_conv3
 
             weights.append((w1, w2))
@@ -215,7 +225,11 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
 
             h_conv1 = tf.nn.elu(same_conv2d(h_upconv_concat, w1) + b1)
             h_conv2 = tf.nn.elu(same_conv2d(h_conv1, w2) + b2)
-            in_node = h_conv2# + h_upconv
+
+            #h_upconv_cropped = crop(h_upconv, h_conv2, batch_size)
+            skip_connect_cropped = crop(dw_h_convs[layer], h_conv2, batch_size)
+
+            in_node = h_conv2 + skip_connect_cropped# + h_upconv_cropped
             up_h_convs[layer] = in_node
 
             weights.append((w1, w2, w3))
@@ -698,8 +712,10 @@ def predict():
                 combinedPrediction = np.zeros((num_layers, output_shape, output_shape, 2))
                 overlappedComputations = np.zeros((num_layers, output_shape, output_shape, 2))
                 for z in xrange(num_layers):
-                    for y in (range(0, input_shape - INPT + 1, 40) + [input_shape - INPT]):
-                        for x in (range(0, input_shape - INPT + 1, 40) + [input_shape - INPT]):
+                    print('z: ' + str(z) + '/' + str(num_layers))
+                    for y in (range(0, input_shape - INPT + 1, FOV) + [input_shape - INPT]):
+                        print('y: ' + str(y) + '/' + str(input_shape - INPT + 1))
+                        for x in (range(0, input_shape - INPT + 1, FOV) + [input_shape - INPT]):
                             input_patch = np.copy(mirrored_inpt[z:z+1,y:y+INPT,x:x+INPT]).reshape(1, INPT, INPT, 1)
                             pred = sess.run(net.sigmoid_prediction,
                                         feed_dict={inpt: input_patch})
