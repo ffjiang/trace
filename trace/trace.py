@@ -458,8 +458,8 @@ def train(n_iterations=200000):
 
                 should_deform = 0#np.random.randint(low=0, high=4)
                 if should_deform < 3:
-                    alpha = np.random.randint(low=1998, high=2000)
-                    sigma = np.random.randint(low=98, high=100)
+                    alpha = np.random.randint(low=3000, high=3002)
+                    sigma = np.random.randint(low=60, high=62)
                     el_inputs, el_labels = elastic_deform(inputs[0], affinities[0], alpha=alpha, sigma=sigma)
                 else:
                     el_inputs = inputs[0]
