@@ -11,6 +11,8 @@ import tifffile
 import tensorflow as tf
 import numpy as np
 import dataprovider.transform as transform
+from scipy.ndimage.interpolation import map_coordinates
+from scipy.ndimage.filters import gaussian_filter
 
 import snemi3d
 from augmentation import batch_iterator
@@ -34,7 +36,7 @@ FULL_FOV = 191
 FULL_INPT = 702
 FULL_OUTPT = 512
 
-tmp_dir = 'tmp/vnet_2017-actual-skip-connect-residuals/'
+tmp_dir = 'tmp/vnet_2017-residuals-elastic_deform/'
 
 
 def weight_variable(name, shape):
@@ -88,6 +90,29 @@ def dropout(x, keep_prob):
     dropoutMask = tf.nn.dropout(mask, keep_prob)
     return x * dropoutMask
 
+def elastic_deform(image, labels, alpha, sigma, random_state=None):
+    assert len(image.shape) == 3
+
+    if random_state is None:
+        random_state = np.random.RandomState(None)
+
+    shape = image.shape[0:2]
+
+    dx = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma, mode='constant', cval=0) * alpha
+    dy = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma, mode='constant', cval=0) * alpha
+
+    x, y = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing='ij')
+    indices = np.reshape(x + dx, (-1, 1)), np.reshape(y + dy, (-1, 1))
+
+    el_image = np.zeros(shape=image.shape)
+    for i in range(image.shape[2]):
+        el_image[:,:,i] = map_coordinates(image[:,:,i], indices, order=1).reshape(shape)
+
+    el_labels = np.zeros(shape=labels.shape)
+    for i in range(labels.shape[2]):
+        el_labels[:,:,i] = map_coordinates(labels[:,:,i], indices, order=1).reshape(shape)
+
+    return el_image, el_labels
 
 
 def createHistograms(name2var):
@@ -441,12 +466,32 @@ def train(n_iterations=200000):
                            snemi3d.folder()+tmp_dir, graph=sess.graph)
 
             sess.run(tf.global_variables_initializer())
-            for step_, (inputs, affinities) in enumerate(batch_iterator(FOV,OUTPT,INPT)):
+            padding = 40
+            for step_, (inputs, affinities) in enumerate(batch_iterator(1,INPT+padding,INPT+padding)):
                 step = step_
+
+                should_deform = np.random.randint(low=0, high=4)
+                if should_deform < 3:
+                    sigma = np.random.randint(low=35, high=60)
+                    alpha = (sigma - 35) * 80 + 1000 # Sigma mapped uniformly to the interval [1000, 3000)
+                    # Scale alpha randomly
+                    if should_deform == 0:
+                        alpha = alpha * 0.5
+                    elif should_deform == 1:
+                        alpha = alpha * 0.75
+
+                    el_inputs, el_labels = elastic_deform(inputs[0], affinities[0], alpha=alpha, sigma=sigma)
+                else:
+                    el_inputs = inputs[0]
+                    el_labels = affinities[0]
+
+                el_inputs = el_inputs[padding//2:-(padding//2), padding//2:-(padding//2)]
+                el_labels = el_labels[FOV//2 + padding//2:-(FOV//2 + padding//2), FOV//2 + padding//2:-(FOV//2 + padding//2)]
+                
                 sess.run(assign_input,
-                        feed_dict={inpt_placeholder: inputs})
+                        feed_dict={inpt_placeholder: np.expand_dims(el_inputs, axis=0)})
                 sess.run(assign_target,
-                        feed_dict={target_placeholder: affinities})
+                        feed_dict={target_placeholder: np.expand_dims(el_labels[FOV//2:-(FOV//2),FOV//2:-(FOV//2)], axis=0)})
                 sess.run(net.train_step)
 
                 if step % 10 == 0:
@@ -478,7 +523,6 @@ def train(n_iterations=200000):
                                             feed_dict={inpt: input_patch})
                                 combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
                                         
-                                '''
                                 # Apply flipping and rotations
 
                                 # Rotate 90 anti-clockwise
@@ -539,8 +583,6 @@ def train(n_iterations=200000):
                                 combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
  
                                 overlappedComputations[z,y:y+OUTPT,x:x+OUTPT,:] += np.ones((OUTPT, OUTPT, 2)) * 8
-                                '''
-                                overlappedComputations[z,y:y+OUTPT,x:x+OUTPT,:] += np.ones((OUTPT, OUTPT, 2))
 
                     validation_sigmoid_prediction = np.divide(combinedPrediction, overlappedComputations)
                     validation_binary_prediction = np.round(validation_sigmoid_prediction) 
