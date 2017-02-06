@@ -36,7 +36,7 @@ FULL_FOV = 191
 FULL_INPT = 702
 FULL_OUTPT = 512
 
-tmp_dir = 'tmp/vnet_2017-residuals-elastic_deform/'
+tmp_dir = 'tmp/vnet_2017-residuals-elastic_deform-moreconv-downconv/'
 
 
 def weight_variable(name, shape):
@@ -64,7 +64,7 @@ def down_conv2d(x, W, dilation=1):
   return tf.nn.convolution(x, W, strides=[2, 2], padding='SAME', dilation_rate= [dilation, dilation])
 
 def same_conv2d(x, W, dilation=1):
-  return tf.nn.convolution(x, W, strides=[1, 1], padding='VALID', dilation_rate= [dilation, dilation])
+  return tf.nn.convolution(x, W, strides=[1, 1], padding='SAME', dilation_rate= [dilation, dilation])
 
 def max_pool(x, dilation=1, strides=[2, 2], window_shape=[2, 2]):
   return tf.nn.pool(x, window_shape=window_shape, dilation_rate= [dilation, dilation],
@@ -189,18 +189,19 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
             b3 = bias_variable(layer_str + '_b3', [num_feature_maps])
 
             h_conv1 = tf.nn.elu(same_conv2d(in_node, w1) + b1)
-            h_conv2 = tf.nn.elu(same_conv2d(h_conv1, w2) + b2)
+            h_conv2 = tf.nn.elu(conv2d(h_conv1, w2) + b2)
+            h_conv3 = tf.nn.elu(conv2d(h_conv2, w2) + b3)
 
-            in_node_cropped = crop(in_node, h_conv2, batch_size)
+            in_node_cropped = crop(in_node, h_conv3, batch_size)
             if layer == 0:
                 in_node_cropped = tf.tile(in_node_cropped, (1,1,1,num_feature_maps))
             else:
                 in_node_cropped = tf.tile(in_node_cropped, (1,1,1,2))
 
-            h_conv3 = h_conv2 + in_node_cropped
-            dw_h_convs[layer] = h_conv3
+            h_conv4 = h_conv3 + in_node_cropped
+            dw_h_convs[layer] = h_conv4
 
-            weights.append((w1, w2))
+            weights.append((w1, w2, w3))
             convs.append((h_conv1, h_conv2, dw_h_convs[layer]))
             histogram_dict[layer_str + '_in_node'] = in_node
             histogram_dict[layer_str + '_w1'] = w1
@@ -221,8 +222,8 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
             if layer < layers - 1:
                 w_d = weight_variable(layer_str + '_wd', [2, 2, num_feature_maps, 2 * num_feature_maps])
                 b_d = bias_variable(layer_str + '_bd', [2 * num_feature_maps])
-                #pools[layer] = tf.nn.elu(down_conv2d(dw_h_convs[layer], w_d) + b_d)
-                pools[layer] = max_pool(dw_h_convs[layer])
+                pools[layer] = tf.nn.elu(down_conv2d(dw_h_convs[layer], w_d) + b_d)
+                #pools[layer] = max_pool(dw_h_convs[layer])
                 in_node = pools[layer]
                 size //= 2
 
@@ -249,12 +250,13 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
             b3 = bias_variable(layer_str + '_b3', [num_feature_maps])
 
             h_conv1 = tf.nn.elu(same_conv2d(h_upconv_concat, w1) + b1)
-            h_conv2 = tf.nn.elu(same_conv2d(h_conv1, w2) + b2)
+            h_conv2 = tf.nn.elu(conv2d(h_conv1, w2) + b2)
+            h_conv3 = tf.nn.elu(conv2d(h_conv2, w3) + b3)
 
-            #h_upconv_cropped = crop(h_upconv, h_conv2, batch_size)
-            skip_connect_cropped = crop(dw_h_convs[layer], h_conv2, batch_size)
+            #h_upconv_cropped = crop(h_upconv, h_conv3, batch_size)
+            skip_connect_cropped = crop(dw_h_convs[layer], h_conv3, batch_size)
 
-            in_node = h_conv2 + skip_connect_cropped# + h_upconv_cropped
+            in_node = h_conv3 + skip_connect_cropped# + h_upconv_cropped
             up_h_convs[layer] = in_node
 
             weights.append((w1, w2, w3))
@@ -284,7 +286,7 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
         # down layer
         w_o = weight_variable('w_o', [5, 5, features_root, 2]) #* 2, 2])
         b_o = bias_variable('b_o', [2])
-        prediction = same_conv2d(in_node, w_o) + b_o
+        prediction = conv2d(in_node, w_o) + b_o
         sigmoid_prediction = tf.nn.sigmoid(prediction)
 
         histogram_dict['prediction'] = prediction
@@ -491,7 +493,7 @@ def train(n_iterations=200000):
                 sess.run(assign_input,
                         feed_dict={inpt_placeholder: np.expand_dims(el_inputs, axis=0)})
                 sess.run(assign_target,
-                        feed_dict={target_placeholder: np.expand_dims(el_labels[FOV//2:-(FOV//2),FOV//2:-(FOV//2)], axis=0)})
+                        feed_dict={target_placeholder: np.expand_dims(el_labels, axis=0)})
                 sess.run(net.train_step)
 
                 if step % 10 == 0:
