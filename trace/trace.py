@@ -36,7 +36,7 @@ FULL_FOV = 191
 FULL_INPT = 702
 FULL_OUTPT = 512
 
-tmp_dir = 'tmp/unet_testing_elastic_deform_bigger/'
+tmp_dir = 'tmp/vnet_2017-elastic_deform-smaller-nowarp/'
 
 
 def weight_variable(name, shape):
@@ -75,12 +75,15 @@ def conv2d_transpose(x, W, stride):
     output_shape = tf.pack([x_shape[0], x_shape[1] * 2, x_shape[2] * 2, x_shape[3] // 2])
     return tf.nn.conv2d_transpose(x, W, output_shape, strides=[1, stride, stride, 1], padding='SAME')
 
-def crop_and_concat(x1, x2, batch_size):
+def crop(x1, x2, batch_size):
     offsets = tf.zeros(tf.pack([batch_size, 2]), dtype=tf.float32)
     x2_shape = tf.shape(x2)
     size = tf.pack([x2_shape[1], x2_shape[2]])
-    x1_crop = tf.image.extract_glimpse(x1, size=size, offsets=offsets, centered=True)
-    return tf.concat(3, [x1_crop, x2])
+    return tf.image.extract_glimpse(x1, size=size, offsets=offsets, centered=True)
+
+def crop_and_concat(x1, x2, batch_size):
+    return tf.concat(3, [crop(x1, x2, batch_size), x2])
+
 
 def dropout(x, keep_prob):
     mask = tf.ones(x.get_shape()[3])
@@ -187,7 +190,14 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
 
             h_conv1 = tf.nn.elu(same_conv2d(in_node, w1) + b1)
             h_conv2 = tf.nn.elu(same_conv2d(h_conv1, w2) + b2)
-            h_conv3 = h_conv2# + in_node
+
+            in_node_cropped = crop(in_node, h_conv2, batch_size)
+            if layer == 0:
+                in_node_cropped = tf.tile(in_node_cropped, (1,1,1,num_feature_maps))
+            else:
+                in_node_cropped = tf.tile(in_node_cropped, (1,1,1,2))
+
+            h_conv3 = h_conv2# + in_node_cropped
             dw_h_convs[layer] = h_conv3
 
             weights.append((w1, w2))
@@ -240,7 +250,11 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
 
             h_conv1 = tf.nn.elu(same_conv2d(h_upconv_concat, w1) + b1)
             h_conv2 = tf.nn.elu(same_conv2d(h_conv1, w2) + b2)
-            in_node = h_conv2# + h_upconv
+
+            #h_upconv_cropped = crop(h_upconv, h_conv2, batch_size)
+            skip_connect_cropped = crop(dw_h_convs[layer], h_conv2, batch_size)
+
+            in_node = h_conv2# + skip_connect_cropped# + h_upconv_cropped
             up_h_convs[layer] = in_node
 
             weights.append((w1, w2, w3))
@@ -412,7 +426,7 @@ def train(n_iterations=200000):
         assign_target = tf.assign(target, target_placeholder)
         
         with tf.variable_scope('foo'):
-            net = create_unet(inpt, target, keep_prob=1.0, is_training=True, learning_rate=0.0001)
+            net = create_unet(inpt, target, keep_prob=0.8, is_training=True, learning_rate=0.00001)
 
         print ('Run tensorboard to visualize training progress')
         with tf.Session() as sess:
@@ -453,22 +467,31 @@ def train(n_iterations=200000):
 
             sess.run(tf.global_variables_initializer())
             padding = 40
-            for step_, (inputs, affinities) in enumerate(batch_iterator(1,INPT,INPT)):
+            for step_, (inputs, affinities) in enumerate(batch_iterator(1,INPT+padding,INPT+padding)):
                 step = step_
 
-                should_deform = 0#np.random.randint(low=0, high=4)
+                should_deform = np.random.randint(low=0, high=4)
                 if should_deform < 3:
-                    alpha = np.random.randint(low=3000, high=3002)
-                    sigma = np.random.randint(low=60, high=62)
+                    sigma = np.random.randint(low=35, high=60)
+                    alpha = (sigma - 35) * 40 + 1000 # Sigma mapped uniformly to the interval [1000, 3000)
+                    # Scale alpha randomly
+                    if should_deform == 0:
+                        alpha = alpha * 0.5
+                    elif should_deform == 1:
+                        alpha = alpha * 0.75
+
                     el_inputs, el_labels = elastic_deform(inputs[0], affinities[0], alpha=alpha, sigma=sigma)
                 else:
                     el_inputs = inputs[0]
                     el_labels = affinities[0]
+
+                el_inputs = el_inputs[padding//2:-(padding//2), padding//2:-(padding//2)]
+                el_labels = el_labels[FOV//2 + padding//2:-(FOV//2 + padding//2), FOV//2 + padding//2:-(FOV//2 + padding//2)]
                 
                 sess.run(assign_input,
                         feed_dict={inpt_placeholder: np.expand_dims(el_inputs, axis=0)})
                 sess.run(assign_target,
-                        feed_dict={target_placeholder: np.expand_dims(el_labels[FOV//2:-(FOV//2),FOV//2:-(FOV//2)], axis=0)})
+                        feed_dict={target_placeholder: np.expand_dims(el_labels, axis=0)})
                 sess.run(net.train_step)
 
                 if step % 10 == 0:
@@ -500,7 +523,6 @@ def train(n_iterations=200000):
                                             feed_dict={inpt: input_patch})
                                 combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
                                         
-                                '''
                                 # Apply flipping and rotations
 
                                 # Rotate 90 anti-clockwise
@@ -561,8 +583,6 @@ def train(n_iterations=200000):
                                 combinedPrediction[z:z+1,y:y+OUTPT,x:x+OUTPT,:] += pred
  
                                 overlappedComputations[z,y:y+OUTPT,x:x+OUTPT,:] += np.ones((OUTPT, OUTPT, 2)) * 8
-                                '''
-                                overlappedComputations[z,y:y+OUTPT,x:x+OUTPT,:] += np.ones((OUTPT, OUTPT, 2))
 
                     validation_sigmoid_prediction = np.divide(combinedPrediction, overlappedComputations)
                     validation_binary_prediction = np.round(validation_sigmoid_prediction) 
@@ -734,8 +754,10 @@ def predict():
                 combinedPrediction = np.zeros((num_layers, output_shape, output_shape, 2))
                 overlappedComputations = np.zeros((num_layers, output_shape, output_shape, 2))
                 for z in xrange(num_layers):
-                    for y in (range(0, input_shape - INPT + 1, 40) + [input_shape - INPT]):
-                        for x in (range(0, input_shape - INPT + 1, 40) + [input_shape - INPT]):
+                    print('z: ' + str(z) + '/' + str(num_layers))
+                    for y in (range(0, input_shape - INPT + 1, FOV) + [input_shape - INPT]):
+                        print('y: ' + str(y) + '/' + str(input_shape - INPT + 1))
+                        for x in (range(0, input_shape - INPT + 1, FOV) + [input_shape - INPT]):
                             input_patch = np.copy(mirrored_inpt[z:z+1,y:y+INPT,x:x+INPT]).reshape(1, INPT, INPT, 1)
                             pred = sess.run(net.sigmoid_prediction,
                                         feed_dict={inpt: input_patch})
