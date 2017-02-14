@@ -181,7 +181,7 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
             if layer == 0:
                 w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, 1, num_feature_maps]) 
             else:
-                w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, num_feature_maps // 2, num_feature_maps]) 
+                w1 = weight_variable(layer_str + '_w1', [kernel_size, kernel_size, num_feature_maps, num_feature_maps]) 
             w2 = weight_variable(layer_str + '_w2', [kernel_size, kernel_size, num_feature_maps, num_feature_maps]) 
             w3 = weight_variable(layer_str + '_w3', [kernel_size, kernel_size, num_feature_maps, num_feature_maps]) 
             b1 = bias_variable(layer_str + '_b1', [num_feature_maps])
@@ -195,8 +195,10 @@ def create_unet(image, target, keep_prob, is_training, layers=5, features_root=6
             in_node_cropped = crop(in_node, h_conv3, batch_size)
             if layer == 0:
                 in_node_cropped = tf.tile(in_node_cropped, (1,1,1,num_feature_maps))
+            '''
             else:
                 in_node_cropped = tf.tile(in_node_cropped, (1,1,1,2))
+            '''
 
             h_conv4 = h_conv3 + in_node_cropped
             dw_h_convs[layer] = h_conv4
