@@ -132,7 +132,7 @@ def train(model_type, params_type, dataset_name, n_iter, run_name, ff, cont):
         learner.LossHook(10, model),
         learner.ModelSaverHook(100, ckpt_folder),
         #learner.ValidationHook(500, dset_sampler, model, data_folder, params.output_mode, [training_params.z_output_size, training_params.output_size, training_params.output_size]),
-        learner.ImageVisualizationHook(100, model),
+        learner.ImageVisualizationHook(10, model),
         # learner.HistogramHook(100, model),
         # learner.LayerVisualizationHook(500, model),
     ]
@@ -171,7 +171,7 @@ def predict(model_type, params_type, dataset_name, split, run_name, ff):
     elif split == 'validation':
         inputs, labels, _ = dset_sampler.get_validation_set()
     else:
-        inputs = dset_sampler.get_test_set()[:, :100]
+        inputs = dset_sampler.get_test_set()#[:, :100]
         labels = None
 
     # Define results folder
