@@ -170,6 +170,9 @@ def __maybe_create_isbi(dest_folder, train_frac):
 
         # Run watershed to recreate affinities
         current_dir = os.path.dirname(os.path.abspath(__file__))
+	print(dest_folder)
+	print(dest_folder + affinities_fn)
+	print(dest_folder + labels_fn)
         subprocess.call(["julia", current_dir + "/thirdparty/watershed/watershed.jl",
                          dest_folder + affinities_fn,
                          dest_folder + labels_fn,

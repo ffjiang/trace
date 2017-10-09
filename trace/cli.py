@@ -171,7 +171,7 @@ def predict(model_type, params_type, dataset_name, split, run_name, ff):
     elif split == 'validation':
         inputs, labels, _ = dset_sampler.get_validation_set()
     else:
-        inputs = dset_sampler.get_test_set()[:, :100]
+        inputs = dset_sampler.get_test_set()#[:, :100]
         labels = None
 
     # Define results folder

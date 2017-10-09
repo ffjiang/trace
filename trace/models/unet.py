@@ -190,13 +190,13 @@ class RecurrentUNet(Model):
         #assignInitialPoint = tf.Print(assignInitialPoint, [self.pointsToVisit], message='initial point assigned')
          
 
-        objectMask = tf.zeros(shape=inputShape, dtype=tf.float32)
+        objectMask = tf.ones(shape=inputShape, dtype=tf.float32) * (-99)
         visitedPoints = tf.zeros(shape=inputShape, dtype=tf.int32)
         # Assign single positive pixel to center of object mask
         indices = tf.stack([[0, zInputSize // 2, yInputSize // 2, xInputSize // 2, 0]])
-        updates = tf.constant([1.0])
+        updates = tf.constant([200.0])
         shape = tf.shape(objectMask)
-        objectMask = tf.scatter_nd(indices, updates, shape)
+        objectMask = objectMask + tf.scatter_nd(indices, updates, shape)
         cross_entropy = 0.0 
 
         def cond(objectMask, visitedPoints, cross_entropy):
@@ -218,6 +218,7 @@ class RecurrentUNet(Model):
 
             #startingPoint = tf.Print(startingPoint, [startingPoint, inputShape, pointsToVisit], summarize=10, message='starting point, input shape and points to visit')
             newVisitedPoints = visitedPoints
+            #newVisitedPoints = tf.Print(newVisitedPoints, [tf.reduce_max(newVisitedPoints)], summarize=10, message='newVisitedPoints')
 
             # Determine current patch.
             patch = self.image[:, startingPoint[0] - (z_patch_size // 2): startingPoint[0] + (z_patch_size // 2),
@@ -289,48 +290,136 @@ class RecurrentUNet(Model):
                 #popOp = tf.Print(popOp, [startingPoint], message='popOp - startingPoint')
             
             # Add new points to pointsToVisit
-            threshold = 2.2 # Corresponds to prediction value of 0.9 after sigmoid
-            moveDelta = tf.constant([4, 32, 32])
+            threshold = 0.2 # Corresponds to prediction value of 0.9 after sigmoid
+            moveDelta = tf.constant([3, 32, 32])
             directions = tf.constant([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]])
+
             def addPoint1():
                 newPoint = startingPoint + tf.multiply(moveDelta, directions[0])
                 newZ = startingPoint[0] + moveDelta[0]
                 newY = startingPoint[1]
                 newX = startingPoint[2]
-                if newVisitedPoints[0, newZ, newY, newX, 0] == 1:
+                def handleVisited():
                     return (pointsToVisit[tf.shape(pointsToVisit)[0] - 1].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints)
-                else:
+                def handleUnvisited():
                     indices = tf.stack([[0, newZ, newY, newX, 0]])
                     updates = tf.constant([1])
                     shape = tf.shape(newVisitedPoints)
                     updateMask = tf.scatter_nd(indices, updates, shape)
                     newerVisitedPoints = newVisitedPoints + updateMask
                     return (pointsToVisit[tf.shape(pointsToVisit)[0] - 1].assign(tf.concat([newPoint, (1,)], axis=0)), newerVisitedPoints)
+                return tf.cond(tf.equal(newVisitedPoints[0, newZ, newY, newX, 0], 1), handleVisited, handleUnvisited)
 
-            addNewPoint1, newVisitedPoints = tf.cond(startingPoint[0] + moveDelta[0] * directions[0, 0] < zInputSize, lambda: tf.cond(objectMask[0, startingPoint[0] + moveDelta[0] * directions[0, 0], startingPoint[1] + moveDelta[1] * directions[0, 1], startingPoint[2] + moveDelta[2] * directions[0, 2], 0] > threshold,
+            def addPoint2():
+                newPoint = startingPoint + tf.multiply(moveDelta, directions[1])
+                newZ = startingPoint[0] - moveDelta[0]
+                newY = startingPoint[1]
+                newX = startingPoint[2]
+                def handleVisited():
+                    return (pointsToVisit[tf.shape(pointsToVisit)[0] - 2].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints)
+                def handleUnvisited():
+                    indices = tf.stack([[0, newZ, newY, newX, 0]])
+                    updates = tf.constant([1])
+                    shape = tf.shape(newVisitedPoints)
+                    updateMask = tf.scatter_nd(indices, updates, shape)
+                    newerVisitedPoints = newVisitedPoints + updateMask
+                    return (pointsToVisit[tf.shape(pointsToVisit)[0] - 2].assign(tf.concat([newPoint, (1,)], axis=0)), newerVisitedPoints)
+                return tf.cond(tf.equal(newVisitedPoints[0, newZ, newY, newX, 0], 1), handleVisited, handleUnvisited)
+
+            def addPoint3():
+                newPoint = startingPoint + tf.multiply(moveDelta, directions[2])
+                newZ = startingPoint[0]
+                newY = startingPoint[1] + moveDelta[1]
+                newX = startingPoint[2]
+                def handleVisited():
+                    return (pointsToVisit[tf.shape(pointsToVisit)[0] - 3].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints)
+                def handleUnvisited():
+                    indices = tf.stack([[0, newZ, newY, newX, 0]])
+                    updates = tf.constant([1])
+                    shape = tf.shape(newVisitedPoints)
+                    updateMask = tf.scatter_nd(indices, updates, shape)
+                    newerVisitedPoints = newVisitedPoints + updateMask
+                    return (pointsToVisit[tf.shape(pointsToVisit)[0] - 3].assign(tf.concat([newPoint, (1,)], axis=0)), newerVisitedPoints)
+                return tf.cond(tf.equal(newVisitedPoints[0, newZ, newY, newX, 0], 1), handleVisited, handleUnvisited)
+
+            def addPoint4():
+                newPoint = startingPoint + tf.multiply(moveDelta, directions[3])
+                newZ = startingPoint[0]
+                newY = startingPoint[1] - moveDelta[1]
+                newX = startingPoint[2]
+                def handleVisited():
+                    return (pointsToVisit[tf.shape(pointsToVisit)[0] - 4].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints)
+                def handleUnvisited():
+                    indices = tf.stack([[0, newZ, newY, newX, 0]])
+                    updates = tf.constant([1])
+                    shape = tf.shape(newVisitedPoints)
+                    updateMask = tf.scatter_nd(indices, updates, shape)
+                    newerVisitedPoints = newVisitedPoints + updateMask
+                    return (pointsToVisit[tf.shape(pointsToVisit)[0] - 4].assign(tf.concat([newPoint, (1,)], axis=0)), newerVisitedPoints)
+                return tf.cond(tf.equal(newVisitedPoints[0, newZ, newY, newX, 0], 1), handleVisited, handleUnvisited)
+
+            def addPoint5():
+                newPoint = startingPoint + tf.multiply(moveDelta, directions[4])
+                newZ = startingPoint[0]
+                newY = startingPoint[1]
+                newX = startingPoint[2] + moveDelta[2]
+                def handleVisited():
+                    return (pointsToVisit[tf.shape(pointsToVisit)[0] - 5].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints)
+                def handleUnvisited():
+                    indices = tf.stack([[0, newZ, newY, newX, 0]])
+                    updates = tf.constant([1])
+                    shape = tf.shape(newVisitedPoints)
+                    updateMask = tf.scatter_nd(indices, updates, shape)
+                    newerVisitedPoints = newVisitedPoints + updateMask
+                    return (pointsToVisit[tf.shape(pointsToVisit)[0] - 5].assign(tf.concat([newPoint, (1,)], axis=0)), newerVisitedPoints)
+                return tf.cond(tf.equal(newVisitedPoints[0, newZ, newY, newX, 0], 1), handleVisited, handleUnvisited)
+
+            def addPoint6():
+                newPoint = startingPoint + tf.multiply(moveDelta, directions[5])
+                newZ = startingPoint[0]
+                newY = startingPoint[1]
+                newX = startingPoint[2] - moveDelta[2]
+                def handleVisited():
+                    return (pointsToVisit[tf.shape(pointsToVisit)[0] - 6].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints)
+                def handleUnvisited():
+                    indices = tf.stack([[0, newZ, newY, newX, 0]])
+                    updates = tf.constant([1])
+                    shape = tf.shape(newVisitedPoints)
+                    updateMask = tf.scatter_nd(indices, updates, shape)
+                    newerVisitedPoints = newVisitedPoints + updateMask
+                    return (pointsToVisit[tf.shape(pointsToVisit)[0] - 6].assign(tf.concat([newPoint, (1,)], axis=0)), newerVisitedPoints)
+                return tf.cond(tf.equal(newVisitedPoints[0, newZ, newY, newX, 0], 1), handleVisited, handleUnvisited)
+
+
+            addNewPoint1, newVisitedPoints = tf.cond(startingPoint[0] + moveDelta[0] * directions[0, 0] + (z_patch_size // 2) - 1 < zInputSize, lambda: tf.cond(objectMask[0, startingPoint[0] + moveDelta[0] * directions[0, 0], startingPoint[1] + moveDelta[1] * directions[0, 1], startingPoint[2] + moveDelta[2] * directions[0, 2], 0] > threshold,
                     addPoint1,
                     lambda: (pointsToVisit[tf.shape(pointsToVisit)[0] - 1].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints)),
                 lambda: (pointsToVisit[tf.shape(pointsToVisit)[0] - 1].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints))
-            addNewPoint2 = tf.cond(startingPoint[0] + moveDelta[0] * directions[1, 0] >= 0, lambda: tf.cond(objectMask[0, startingPoint[0] + moveDelta[0] * directions[1, 0], startingPoint[1] + moveDelta[1] * directions[1, 1], startingPoint[2] + moveDelta[2] * directions[1, 2], 0] > threshold,
-                    lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 2].assign(tf.concat([startingPoint + tf.multiply(moveDelta, directions[1]), (1,)], axis=0)), 
-                    lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 2].assign(tf.zeros((4), dtype=tf.int32))),
-                lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 2].assign(tf.zeros((4), dtype=tf.int32)))
-            addNewPoint3 = tf.cond(startingPoint[1] + moveDelta[1] * directions[2, 1] < yInputSize, lambda: tf.cond(objectMask[0, startingPoint[0] + moveDelta[0] * directions[2, 0], startingPoint[1] + moveDelta[1] * directions[2, 1], startingPoint[2] + moveDelta[2] * directions[2, 2], 0] > threshold,
-                    lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 3].assign(tf.concat([startingPoint + tf.multiply(moveDelta, directions[2]), (1,)], axis=0)),
-                    lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 3].assign(tf.zeros((4), dtype=tf.int32))),
-                lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 3].assign(tf.zeros((4), dtype=tf.int32)))
-            addNewPoint4 = tf.cond(startingPoint[1] + moveDelta[1] * directions[3, 1] >= 0, lambda: tf.cond(objectMask[0, startingPoint[0] + moveDelta[0] * directions[3, 0], startingPoint[1] + moveDelta[1] * directions[3, 1], startingPoint[2] + moveDelta[2] * directions[3, 2], 0] > threshold,
-                    lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 4].assign(tf.concat([startingPoint + tf.multiply(moveDelta, directions[3]), (1,)], axis=0)),
-                    lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 4].assign(tf.zeros((4), dtype=tf.int32))),
-                lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 4].assign(tf.zeros((4), dtype=tf.int32)))
-            addNewPoint5 = tf.cond(startingPoint[2] + moveDelta[2] * directions[4, 2] < xInputSize, lambda: tf.cond(objectMask[0, startingPoint[0] + moveDelta[0] * directions[4, 0], startingPoint[1] + moveDelta[1] * directions[4, 1], startingPoint[2] + moveDelta[2] * directions[4, 2], 0] > threshold,
-                    lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 5].assign(tf.concat([startingPoint + tf.multiply(moveDelta, directions[4]), (1,)], axis=0)),
-                    lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 5].assign(tf.zeros((4), dtype=tf.int32))),
-                lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 5].assign(tf.zeros((4), dtype=tf.int32)))
-            addNewPoint6 = tf.cond(startingPoint[2] + moveDelta[2] * directions[5, 2] >= 0, lambda: tf.cond(objectMask[0, startingPoint[0] + moveDelta[0] * directions[5, 0], startingPoint[1] + moveDelta[1] * directions[5, 1], startingPoint[2] + moveDelta[2] * directions[5, 2], 0] > threshold,
-                    lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 6].assign(tf.concat([startingPoint + tf.multiply(moveDelta, directions[5]), (1,)], axis=0)),
-                    lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 6].assign(tf.zeros((4), dtype=tf.int32))),
-                lambda: pointsToVisit[tf.shape(pointsToVisit)[0] - 6].assign(tf.zeros((4), dtype=tf.int32)))
+
+            addNewPoint2, newVisitedPoints = tf.cond(startingPoint[0] + moveDelta[0] * directions[1, 0] - (z_patch_size // 2) >= 0, lambda: tf.cond(objectMask[0, startingPoint[0] + moveDelta[0] * directions[1, 0], startingPoint[1] + moveDelta[1] * directions[1, 1], startingPoint[2] + moveDelta[2] * directions[1, 2], 0] > threshold,
+                    addPoint2,
+                    lambda: (pointsToVisit[tf.shape(pointsToVisit)[0] - 2].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints)),
+                lambda: (pointsToVisit[tf.shape(pointsToVisit)[0] - 2].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints))
+
+            addNewPoint3, newVisitedPoints = tf.cond(startingPoint[1] + moveDelta[1] * directions[2, 1] + (patch_size // 2) - 1 < yInputSize, lambda: tf.cond(objectMask[0, startingPoint[0] + moveDelta[0] * directions[2, 0], startingPoint[1] + moveDelta[1] * directions[2, 1], startingPoint[2] + moveDelta[2] * directions[2, 2], 0] > threshold,
+                    addPoint3,
+                    lambda: (pointsToVisit[tf.shape(pointsToVisit)[0] - 3].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints)),
+                lambda: (pointsToVisit[tf.shape(pointsToVisit)[0] - 3].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints))
+
+            addNewPoint4, newVisitedPoints = tf.cond(startingPoint[1] + moveDelta[1] * directions[3, 1] - (patch_size // 2) >= 0, lambda: tf.cond(objectMask[0, startingPoint[0] + moveDelta[0] * directions[3, 0], startingPoint[1] + moveDelta[1] * directions[3, 1], startingPoint[2] + moveDelta[2] * directions[3, 2], 0] > threshold,
+                    addPoint4,
+                    lambda: (pointsToVisit[tf.shape(pointsToVisit)[0] - 4].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints)),
+                lambda: (pointsToVisit[tf.shape(pointsToVisit)[0] - 4].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints))
+
+            addNewPoint5, newVisitedPoints = tf.cond(startingPoint[2] + moveDelta[2] * directions[4, 2] + (patch_size // 2) - 1 < xInputSize, lambda: tf.cond(objectMask[0, startingPoint[0] + moveDelta[0] * directions[4, 0], startingPoint[1] + moveDelta[1] * directions[4, 1], startingPoint[2] + moveDelta[2] * directions[4, 2], 0] > threshold,
+                    addPoint5,
+                    lambda: (pointsToVisit[tf.shape(pointsToVisit)[0] - 5].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints)),
+                lambda: (pointsToVisit[tf.shape(pointsToVisit)[0] - 5].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints))
+
+            addNewPoint6, newVisitedPoints = tf.cond(startingPoint[2] + moveDelta[2] * directions[5, 2] - (patch_size // 2) >= 0, lambda: tf.cond(objectMask[0, startingPoint[0] + moveDelta[0] * directions[5, 0], startingPoint[1] + moveDelta[1] * directions[5, 1], startingPoint[2] + moveDelta[2] * directions[5, 2], 0] > threshold,
+                    addPoint6,
+                    lambda: (pointsToVisit[tf.shape(pointsToVisit)[0] - 6].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints)),
+                lambda: (pointsToVisit[tf.shape(pointsToVisit)[0] - 6].assign(tf.zeros((4), dtype=tf.int32)), newVisitedPoints))
             
             
             return tf.tuple([objectMask, newVisitedPoints, cross_entropy + tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=last_layer,
