@@ -36,48 +36,51 @@ RES_VNET = UNetArchitecture(
 )
 
 
-UNET_3D = UNetArchitecture(
-    model_name='unet_3d',
-    output_mode=AFFINITIES_3D,
-    layers=[
-        UNet3DLayer(layer_name='layer_d1', is_valid=False, is_z_valid=False, is_residual=True, 
-                    uses_max_pool=True, filter_size=3, z_filter_size=3,
-                    n_feature_maps=64, num_convs=3, is_contracting=True, 
-                    is_expanding=False, is_training=False),
-        UNet3DLayer(layer_name='layer_d2', is_valid=False, is_z_valid=False, is_residual=True, 
-                    uses_max_pool=True, filter_size=3, z_filter_size=3,
-                    n_feature_maps=128, num_convs=3, is_contracting=True, 
-                    is_expanding=False, is_training=False),
-        UNet3DLayer(layer_name='layer_d3', is_valid=False, is_z_valid=False, is_residual=True, 
-                    uses_max_pool=True, filter_size=3, z_filter_size=3,
-                    n_feature_maps=256, num_convs=3, is_contracting=True, 
-                    is_expanding=False, is_training=False),
-        UNet3DLayer(layer_name='layer_d4', is_valid=False, is_z_valid=False, is_residual=True, 
-                    uses_max_pool=True, filter_size=3, z_filter_size=3,
-                    n_feature_maps=512, num_convs=3, is_contracting=True, 
-                    is_expanding=False, is_training=False),
-        UNet3DLayer(layer_name='layer_5', is_valid=False, is_z_valid=False, is_residual=True, 
-                    uses_max_pool=True, filter_size=3, z_filter_size=3,
-                    n_feature_maps=1024, num_convs=3, is_contracting=False, 
-                    is_expanding=True, is_training=False),
-        UNet3DLayer(layer_name='layer_u4', is_valid=False, is_z_valid=False, is_residual=True, 
-                    uses_max_pool=True, filter_size=3, z_filter_size=3,
-                    n_feature_maps=512, num_convs=3, is_contracting=False, 
-                    is_expanding=True, is_training=False),
-        UNet3DLayer(layer_name='layer_u3', is_valid=False, is_z_valid=False, is_residual=True, 
-                    uses_max_pool=True, filter_size=3, z_filter_size=3,
-                    n_feature_maps=256, num_convs=3, is_contracting=False, 
-                    is_expanding=True, is_training=False),
-        UNet3DLayer(layer_name='layer_u2', is_valid=False, is_z_valid=False, is_residual=True, 
-                    uses_max_pool=True, filter_size=3, z_filter_size=3,
-                    n_feature_maps=128, num_convs=3, is_contracting=False, 
-                    is_expanding=True, is_training=False),
-        UNet3DLayer(layer_name='layer_u1', is_valid=False, is_z_valid=False, is_residual=True, 
-                    uses_max_pool=True, filter_size=3, z_filter_size=3,
-                    n_feature_maps=64, num_convs=3, is_contracting=False, 
-                    is_expanding=False, is_training=False),
-    ]
-)
+def generate_UNET_3D():
+    return UNetArchitecture(
+        model_name='unet_3d',
+        output_mode=AFFINITIES_3D,
+        layers=[
+            UNet3DLayer(layer_name='layer_d1', is_valid=False, is_z_valid=False, is_residual=True, 
+                        uses_max_pool=True, filter_size=3, z_filter_size=3,
+                        n_feature_maps=64, num_convs=3, is_contracting=True, 
+                        is_expanding=False, is_training=False),
+            UNet3DLayer(layer_name='layer_d2', is_valid=False, is_z_valid=False, is_residual=True, 
+                        uses_max_pool=True, filter_size=3, z_filter_size=3,
+                        n_feature_maps=128, num_convs=3, is_contracting=True, 
+                        is_expanding=False, is_training=False),
+            UNet3DLayer(layer_name='layer_d3', is_valid=False, is_z_valid=False, is_residual=True, 
+                        uses_max_pool=True, filter_size=3, z_filter_size=3,
+                        n_feature_maps=256, num_convs=3, is_contracting=True, 
+                        is_expanding=False, is_training=False),
+            UNet3DLayer(layer_name='layer_d4', is_valid=False, is_z_valid=False, is_residual=True, 
+                        uses_max_pool=True, filter_size=3, z_filter_size=3,
+                        n_feature_maps=512, num_convs=3, is_contracting=True, 
+                        is_expanding=False, is_training=False),
+            UNet3DLayer(layer_name='layer_5', is_valid=False, is_z_valid=False, is_residual=True, 
+                        uses_max_pool=True, filter_size=3, z_filter_size=3,
+                        n_feature_maps=1024, num_convs=3, is_contracting=False, 
+                        is_expanding=True, is_training=False),
+            UNet3DLayer(layer_name='layer_u4', is_valid=False, is_z_valid=False, is_residual=True, 
+                        uses_max_pool=True, filter_size=3, z_filter_size=3,
+                        n_feature_maps=512, num_convs=3, is_contracting=False, 
+                        is_expanding=True, is_training=False),
+            UNet3DLayer(layer_name='layer_u3', is_valid=False, is_z_valid=False, is_residual=True, 
+                        uses_max_pool=True, filter_size=3, z_filter_size=3,
+                        n_feature_maps=256, num_convs=3, is_contracting=False, 
+                        is_expanding=True, is_training=False),
+            UNet3DLayer(layer_name='layer_u2', is_valid=False, is_z_valid=False, is_residual=True, 
+                        uses_max_pool=True, filter_size=3, z_filter_size=3,
+                        n_feature_maps=128, num_convs=3, is_contracting=False, 
+                        is_expanding=True, is_training=False),
+            UNet3DLayer(layer_name='layer_u1', is_valid=False, is_z_valid=False, is_residual=True, 
+                        uses_max_pool=True, filter_size=3, z_filter_size=3,
+                        n_feature_maps=64, num_convs=3, is_contracting=False, 
+                        is_expanding=False, is_training=False),
+        ]
+    )
+
+UNET_3D = generate_UNET_3D()
 
 
 # INPUTS = (32, 190, 190)
@@ -136,31 +139,31 @@ def generate_UNET_3D_4LAYERS():
         layers=[
             UNet3DLayer(layer_name='layer_d1', is_valid=False, is_z_valid=False, is_residual=True, 
                         uses_max_pool=True, filter_size=3, z_filter_size=3,
-                        n_feature_maps=32, num_convs=3, is_contracting=True, 
+                        n_feature_maps=64, num_convs=3, is_contracting=True, 
                         is_expanding=False, is_training=False),
             UNet3DLayer(layer_name='layer_d2', is_valid=False, is_z_valid=False, is_residual=True, 
                         uses_max_pool=True, filter_size=3, z_filter_size=3,
-                        n_feature_maps=64, num_convs=3, is_contracting=True, 
+                        n_feature_maps=128, num_convs=3, is_contracting=True, 
                         is_expanding=False, is_training=False),
             UNet3DLayer(layer_name='layer_d3', is_valid=False, is_z_valid=False, is_residual=True, 
                         uses_max_pool=True, filter_size=3, z_filter_size=3,
-                        n_feature_maps=128, num_convs=3, is_contracting=True, 
+                        n_feature_maps=256, num_convs=3, is_contracting=True, 
                         is_expanding=False, is_training=False),
             UNet3DLayer(layer_name='layer_4', is_valid=False, is_z_valid=False, is_residual=True, 
                         uses_max_pool=True, filter_size=3, z_filter_size=3,
-                        n_feature_maps=256, num_convs=3, is_contracting=False, 
+                        n_feature_maps=512, num_convs=3, is_contracting=False, 
                         is_expanding=True, is_training=False),
             UNet3DLayer(layer_name='layer_u3', is_valid=False, is_z_valid=False, is_residual=True, 
                         uses_max_pool=True, filter_size=3, z_filter_size=3,
-                        n_feature_maps=128, num_convs=3, is_contracting=False, 
+                        n_feature_maps=256, num_convs=3, is_contracting=False, 
                         is_expanding=True, is_training=False),
             UNet3DLayer(layer_name='layer_u2', is_valid=False, is_z_valid=False, is_residual=True, 
                         uses_max_pool=True, filter_size=3, z_filter_size=3,
-                        n_feature_maps=64, num_convs=3, is_contracting=False, 
+                        n_feature_maps=128, num_convs=3, is_contracting=False, 
                         is_expanding=True, is_training=False),
             UNet3DLayer(layer_name='layer_u1', is_valid=False, is_z_valid=False, is_residual=True, 
                         uses_max_pool=True, filter_size=3, z_filter_size=3,
-                        n_feature_maps=32, num_convs=3, is_contracting=False, 
+                        n_feature_maps=64, num_convs=3, is_contracting=False, 
                         is_expanding=False, is_training=False),
         ]
     )
@@ -168,12 +171,12 @@ def generate_UNET_3D_4LAYERS():
 UNET_3D_4LAYERS = generate_UNET_3D_4LAYERS()
 
 class RecurrentUNet(Model):
-    def __init__(self, architecture, is_training=False, patch_size=80, z_patch_size=8):
+    def __init__(self, architecture, is_training=False, patch_size=160, z_patch_size=16):
         super(RecurrentUNet, self).__init__(architecture)
 
         # Need to initialize variables as they cannot be initialized in while
         # loop.
-        UNet(generate_UNET_3D_4LAYERS())
+        UNet(generate_UNET_3D())
 
         inputShape = tf.shape(self.image)
         zInputSize = inputShape[1]
@@ -184,7 +187,7 @@ class RecurrentUNet(Model):
         with tf.variable_scope('points2visit'):
             self.pointsToVisit = tf.get_variable('pointsToVisit', shape=[50, 4], dtype=tf.int32, trainable=False, collections=None)
         assignInitialPoint = self.pointsToVisit[0].assign(tf.stack([zInputSize // 2, yInputSize // 2, xInputSize // 2, 1]))
-        assignInitialPoint = tf.Print(assignInitialPoint, [self.pointsToVisit], message='initial point assigned')
+        #assignInitialPoint = tf.Print(assignInitialPoint, [self.pointsToVisit], message='initial point assigned')
          
 
         objectMask = tf.zeros(shape=inputShape, dtype=tf.float32)
@@ -199,7 +202,7 @@ class RecurrentUNet(Model):
         def cond(objectMask, visitedPoints, cross_entropy):
             with tf.variable_scope('points2visit', reuse=True):
                 pointsToVisit = tf.get_variable('pointsToVisit', dtype=tf.int32, trainable=False, collections=None)
-            pointsToVisit = tf.Print(pointsToVisit, [pointsToVisit, tf.reduce_sum(pointsToVisit[:, 3])], summarize=20, message='cond pointsToVisit')
+            #pointsToVisit = tf.Print(pointsToVisit, [pointsToVisit, tf.reduce_sum(pointsToVisit[:, 3])], summarize=20, message='cond pointsToVisit')
             return tf.greater(tf.reduce_sum(pointsToVisit[:, 3]), 0)
 
 
@@ -213,7 +216,7 @@ class RecurrentUNet(Model):
             with tf.control_dependencies([reorder]):
                 startingPoint = pointsToVisit[0, :3]
 
-            startingPoint = tf.Print(startingPoint, [startingPoint, inputShape, pointsToVisit], summarize=10, message='starting point, input shape and points to visit')
+            #startingPoint = tf.Print(startingPoint, [startingPoint, inputShape, pointsToVisit], summarize=10, message='starting point, input shape and points to visit')
             newVisitedPoints = visitedPoints
 
             # Determine current patch.
@@ -231,10 +234,10 @@ class RecurrentUNet(Model):
 
 
             # Do computation using UNet for this time step.
-            unetArchitecture = generate_UNET_3D_4LAYERS()
+            unetArchitecture = generate_UNET_3D()
 
             prev_layer = tf.concat([patch, tf.nn.sigmoid(objectMaskPatch)], axis=4)
-            prev_layer = tf.Print(prev_layer, [tf.shape(patch), tf.shape(objectMaskPatch)], summarize=10, message='patch and object mask')
+            #prev_layer = tf.Print(prev_layer, [tf.shape(patch), tf.shape(objectMaskPatch)], summarize=10, message='patch and object mask')
             prev_n_feature_maps = 2
 
             skip_connections = []
@@ -283,7 +286,7 @@ class RecurrentUNet(Model):
             
             with tf.control_dependencies([startingPoint]):
                 popOp = pointsToVisit[0].assign(tf.zeros((4), dtype=tf.int32))
-                popOp = tf.Print(popOp, [startingPoint], message='popOp - startingPoint')
+                #popOp = tf.Print(popOp, [startingPoint], message='popOp - startingPoint')
             
             # Add new points to pointsToVisit
             threshold = 2.2 # Corresponds to prediction value of 0.9 after sigmoid
@@ -331,20 +334,20 @@ class RecurrentUNet(Model):
             
             
             return tf.tuple([objectMask, newVisitedPoints, cross_entropy + tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=last_layer,
-                                                        labels=targetPatch))], control_inputs=[popOp, addNewPoint1, addNewPoint2, addNewPoint3, addNewPoint4, addNewPoint5, addNewPoint6])
+                                                        labels=targetPatch))], control_inputs=[popOp])#, addNewPoint1, addNewPoint2, addNewPoint3, addNewPoint4, addNewPoint5, addNewPoint6])
 
         with tf.control_dependencies([assignInitialPoint]):
-            objectMask, _, cross_entropy = tf.while_loop(cond, body, [objectMask, visitedPoints, cross_entropy], swap_memory=True)
+            objectMask, _, cross_entropy = tf.while_loop(cond, body, [objectMask, visitedPoints, cross_entropy], swap_memory=False)
 
         # Predictions
-        objectMask = tf.Print(objectMask, [tf.reduce_max(objectMask), objectMask], summarize=50, message='object mask')
+        #objectMask = tf.Print(objectMask, [tf.reduce_max(objectMask), objectMask], summarize=50, message='object mask')
         self.prediction = tf.nn.sigmoid(objectMask)
-        self.prediction = tf.Print(self.prediction, [tf.reduce_max(self.prediction), self.prediction], summarize=50, message='predictions')
+        #self.prediction = tf.Print(self.prediction, [tf.reduce_max(self.prediction), self.prediction], summarize=50, message='predictions')
         self.binary_prediction = tf.round(self.prediction)
 
         # Loss
-        self.cross_entropy = cross_entropy + tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=objectMask,
-                                                                                                    labels=self.target))
+        self.cross_entropy = cross_entropy# + tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=objectMask,
+                                          #                                                          labels=self.target))
         self.pixel_error = tf.reduce_mean(tf.cast(tf.abs(self.binary_prediction - self.target), tf.float32))
 
         self.saver = tf.train.Saver()
